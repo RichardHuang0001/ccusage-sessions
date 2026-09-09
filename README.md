@@ -185,24 +185,34 @@ bun add -g ccusage
 
 ## 💻 快速安装
 
-本项目采用现代 Python 标准打包，同时提供**一键脚本**与 **pip 直装**两种体验：
+本项目已正式发布至 **PyPI 官方包管理器**，同时支持国内各大镜像源、GitHub 直装与本地一键配置脚本：
 
-### 方式 1：一行命令通过 pip 直装（最推荐）
-
-无需手动克隆仓库，直接在终端执行：
+### 方式 1：通过 PyPI 官方源 / 镜像源安装（最推荐，零克隆秒开）
 
 ```bash
-# 通过 GitHub 直装（自动注册 myccusage 和 ccusage-sessions 全局命令）
-pip install git+https://github.com/RichardHuang0001/ccusage-sessions.git
+# 官方源直接安装（自动注册 myccusage 和 ccusage-sessions 命令）
+pip install myccusage
 
-# 国内网络加速镜像直装
-pip install git+https://ghproxy.net/https://github.com/RichardHuang0001/ccusage-sessions.git
+# 国内镜像源极速安装（清华大学开源镜像站）
+pip install myccusage -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 或使用现代隔离工具 pipx / uv
-pipx install git+https://github.com/RichardHuang0001/ccusage-sessions.git
+pipx install myccusage
+# 或使用 uv 免安装即跑
+uvx myccusage --agy
 ```
 
-### 方式 2：克隆仓库并使用一键脚本配置
+### 方式 2：通过 GitHub 直装
+
+```bash
+# 国际直连
+pip install git+https://github.com/RichardHuang0001/ccusage-sessions.git
+
+# 国内加速镜像
+pip install git+https://ghproxy.net/https://github.com/RichardHuang0001/ccusage-sessions.git
+```
+
+### 方式 3：克隆仓库并使用一键脚本配置
 
 ```bash
 # 1. 克隆仓库
