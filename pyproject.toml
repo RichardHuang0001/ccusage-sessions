@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "myccusage"
+version = "1.1.0"
+description = "Multi-Agent session usage analytics and DeepSeek-V4-Flash cost estimator"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Richard Huang", email = "RichardHuang0001@users.noreply.github.com"}
+]
+keywords = [
+    "claude-code",
+    "antigravity",
+    "deepseek",
+    "llm-cost",
+    "token-usage",
+    "developer-tools",
+    "cli"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+dependencies = []
+
+[project.scripts]
+myccusage = "myccusage_lib.cli:main"
+ccusage-sessions = "myccusage_lib.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["myccusage_lib*"]
+
+[tool.setuptools.package-data]
+myccusage_lib = ["web/static/*"]

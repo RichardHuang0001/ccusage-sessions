@@ -1,0 +1,1797 @@
+/**
+ * myccusage Web Dashboard 前端交互逻辑
+ * 纯原生 JavaScript 实现，零框架重型依赖，极速响应。
+ */
+
+(function () {
+  'use strict';
+
+  // 格式化单价（避免 0.025 等高精度小数被无故截断或四舍五入）
+  function formatRate(rate) {
+    if (typeof rate !== 'number') rate = parseFloat(rate) || 0;
+    if (rate % 1 === 0) return rate.toFixed(1);
+    return Number(rate.toFixed(4)).toString();
+  }
+
+  // 系统预设计价模型库（已通过官方最新文档校验）
+  const DEFAULT_PRICING_MODELS = {
+    'deepseek-v4-flash': {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek-V4-Flash (高峰期)',
+      badge: '官方高峰期',
+      currency: 'CNY',
+      inputRate: 3.0,
+      cacheRate: 0.1,
+      outputRate: 9.0,
+      isBuiltin: true,
+      note: '官方高峰期计费标准 (输入未命中 ¥3/M | 缓存命中 ¥0.1/M | 输出 ¥9/M)'
+    },
+    'deepseek-v4-flash-offpeak': {
+      id: 'deepseek-v4-flash-offpeak',
+      name: 'DeepSeek-V4-Flash (低谷期)',
+      badge: '官方低谷期',
+      currency: 'CNY',
+      inputRate: 1.5,
+      cacheRate: 0.05,
+      outputRate: 4.5,
+      isBuiltin: true,
+      note: '官方空闲低谷期计费标准 (输入未命中 ¥1.5/M | 缓存命中 ¥0.05/M | 输出 ¥4.5/M)'
+    },
+    'glm-5.3-flash': {
+      id: 'glm-5.3-flash',
+      name: 'GLM-5.3-Flash (正式刊例价)',
+      badge: '智谱AI标准价',
+      currency: 'CNY',
+      inputRate: 0.8,
+      cacheRate: 0.23,
+      outputRate: 2.8,
+      isBuiltin: true,
+      note: '智谱AI官方正式刊例价 (输入未命中 ¥0.8/M | 缓存命中 ¥0.23/M | 输出 ¥2.8/M)'
+    },
+    'gpt-6-astra': {
+      id: 'gpt-6-astra',
+      name: 'GPT-6 Astra',
+      badge: 'OpenAI超旗舰',
+      currency: 'USD',
+      inputRate: 10.0,
+      cacheRate: 1.0,
+      outputRate: 50.0,
+      isBuiltin: true,
+      note: 'OpenAI官方超旗舰标准 (输入未命中 $10/M | 缓存命中 $1/M | 输出 $50/M)'
+    },
+    'gpt-5.6-sol': {
+      id: 'gpt-5.6-sol',
+      name: 'GPT-5.6 Sol',
+      badge: 'OpenAI主力旗舰',
+      currency: 'USD',
+      inputRate: 4.0,
+      cacheRate: 0.4,
+      outputRate: 20.0,
+      isBuiltin: true,
+      note: 'OpenAI智能体主力旗舰 (输入未命中 $4/M | 缓存命中 $0.4/M | 输出 $20/M)'
+    },
+    'gpt-5.6-terra': {
+      id: 'gpt-5.6-terra',
+      name: 'GPT-5.6 Terra',
+      badge: 'OpenAI均衡主力',
+      currency: 'USD',
+      inputRate: 2.0,
+      cacheRate: 0.2,
+      outputRate: 12.0,
+      isBuiltin: true,
+      note: 'OpenAI高吞吐均衡主力 (输入未命中 $2/M | 缓存命中 $0.2/M | 输出 $12/M)'
+    },
+    'claude-opus-5': {
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      badge: 'Anthropic旗舰',
+      currency: 'USD',
+      inputRate: 5.0,
+      cacheRate: 0.5,
+      outputRate: 25.0,
+      isBuiltin: true,
+      note: 'Anthropic前沿推理旗舰 (输入未命中 $5/M | 缓存命中 $0.5/M | 输出 $25/M)'
+    },
+    'claude-sonnet-5': {
+      id: 'claude-sonnet-5',
+      name: 'Claude Sonnet 5',
+      badge: 'Anthropic主力',
+      currency: 'USD',
+      inputRate: 2.0,
+      cacheRate: 0.2,
+      outputRate: 10.0,
+      isBuiltin: true,
+      note: 'Anthropic通用综合标杆主力 (输入未命中 $2/M | 缓存命中 $0.2/M | 输出 $10/M)'
+    },
+    'claude-haiku-4.5': {
+      id: 'claude-haiku-4.5',
+      name: 'Claude Haiku 4.5',
+      badge: 'Anthropic轻量',
+      currency: 'USD',
+      inputRate: 1.0,
+      cacheRate: 0.1,
+      outputRate: 5.0,
+      isBuiltin: true,
+      note: 'Anthropic极速高吞吐主力 (输入未命中 $1/M | 缓存命中 $0.1/M | 输出 $5/M)'
+    },
+    'grok-4.6': {
+      id: 'grok-4.6',
+      name: 'Grok 4.6',
+      badge: 'xAI最新旗舰',
+      currency: 'USD',
+      inputRate: 2.0,
+      cacheRate: 0.5,
+      outputRate: 6.0,
+      isBuiltin: true,
+      note: 'xAI最新旗舰模型 (输入未命中 $2/M | 缓存命中 $0.5/M | 输出 $6/M)'
+    },
+    'mimo-v2.5-pro': {
+      id: 'mimo-v2.5-pro',
+      name: 'MiMo-V2.5-Pro',
+      badge: '小米官方',
+      currency: 'CNY',
+      inputRate: 3.0,
+      cacheRate: 0.025,
+      outputRate: 6.0,
+      isBuiltin: true,
+      note: '小米官方按量计费标准 (输入未命中 ¥3/M | 缓存命中 ¥0.025/M | 输出 ¥6/M)'
+    }
+  };
+
+  // 本地轻量持久化存储 (高内聚、零冗余中间文件)
+  function getCustomModels() {
+    try {
+      const raw = localStorage.getItem('myccusage_custom_pricing_models');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveCustomModels(models) {
+    try {
+      localStorage.setItem('myccusage_custom_pricing_models', JSON.stringify(models));
+    } catch (e) {}
+  }
+
+  function getDeletedModelIds() {
+    try {
+      const raw = localStorage.getItem('myccusage_deleted_model_ids');
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveDeletedModelIds(ids) {
+    try {
+      localStorage.setItem('myccusage_deleted_model_ids', JSON.stringify(ids));
+    } catch (e) {}
+  }
+
+  function getAllPricingModels() {
+    const deleted = getDeletedModelIds();
+    const all = Object.assign({}, DEFAULT_PRICING_MODELS, getCustomModels());
+    deleted.forEach(id => {
+      delete all[id];
+    });
+    return all;
+  }
+
+  function getActiveModel() {
+    const all = getAllPricingModels();
+    if (all[state.pricingModel]) return all[state.pricingModel];
+    const firstKey = Object.keys(all)[0];
+    return firstKey ? all[firstKey] : DEFAULT_PRICING_MODELS['deepseek-v4-flash'];
+  }
+
+  // 全局状态
+  const state = {
+    agent: 'agy',
+    mode: 'daily',
+    sort: 'time',
+    timeSortOrder: 'desc', // Web 端默认时间倒序 (最新在最顶上)
+    pricingModel: 'deepseek-v4-flash',
+    managingModelId: 'deepseek-v4-flash',
+    searchQuery: '',
+    data: null,
+    allAgentsData: null,
+    trendChartInstance: null,
+    donutChartInstance: null,
+    isDarkTheme: true
+  };
+
+  // DOM 元素缓存
+  const el = {
+    agentSelector: document.getElementById('agentSelector'),
+    modeSelector: document.getElementById('modeSelector'),
+    btnSortTime: document.getElementById('btnSortTime'),
+    btnSortTokens: document.getElementById('btnSortTokens'),
+    btnRefresh: document.getElementById('btnRefresh'),
+    btnThemeToggle: document.getElementById('btnThemeToggle'),
+    themeIcon: document.getElementById('themeIcon'),
+    liveStatus: document.getElementById('liveStatus'),
+    searchInput: document.getElementById('searchInput'),
+    btnClearSearch: document.getElementById('btnClearSearch'),
+    btnToggleAllAccordion: document.getElementById('btnToggleAllAccordion'),
+    recordCounter: document.getElementById('recordCounter'),
+
+    // 计价下拉
+    pricingDropdownContainer: document.getElementById('pricingDropdownContainer'),
+    pricingTrigger: document.getElementById('pricingTrigger'),
+    selectedPricingName: document.getElementById('selectedPricingName'),
+    pricingMenu: document.getElementById('pricingMenu'),
+    pricingOptionsList: document.getElementById('pricingOptionsList'),
+    pricingFloatingPopover: document.getElementById('pricingFloatingPopover'),
+    btnOpenModelManager: document.getElementById('btnOpenModelManager'),
+
+    // KPI 元素
+    valTotalTokens: document.getElementById('valTotalTokens'),
+    subTotalTokens: document.getElementById('subTotalTokens'),
+    valTotalCost: document.getElementById('valTotalCost'),
+    valTotalCostUsd: document.getElementById('valTotalCostUsd'),
+    valCacheHitRate: document.getElementById('valCacheHitRate'),
+    barCacheHit: document.getElementById('barCacheHit'),
+    valActiveDays: document.getElementById('valActiveDays'),
+    subActiveDays: document.getElementById('subActiveDays'),
+    valRecordsCount: document.getElementById('valRecordsCount'),
+    badgeActivePeriod: document.getElementById('badgeActivePeriod'),
+    badgeRecordsType: document.getElementById('badgeRecordsType'),
+
+    // 视图容器
+    chartsSection: document.getElementById('chartsSection'),
+    allAgentsSection: document.getElementById('allAgentsSection'),
+    agentsOverviewGrid: document.getElementById('agentsOverviewGrid'),
+    ledgerContainer: document.getElementById('ledgerContainer'),
+    toast: document.getElementById('toast'),
+
+    // Canvas
+    trendChartCanvas: document.getElementById('trendChartCanvas'),
+    donutChartCanvas: document.getElementById('donutChartCanvas'),
+    donutStats: document.getElementById('donutStats'),
+    trendChartTitle: document.getElementById('trendChartTitle'),
+
+    // 模型管理弹窗 (二级)
+    modelManagerModal: document.getElementById('modelManagerModal'),
+    btnCloseManagerModal: document.getElementById('btnCloseManagerModal'),
+    modelCountBadge: document.getElementById('modelCountBadge'),
+    manageModelList: document.getElementById('manageModelList'),
+    btnOpenAddModelModal: document.getElementById('btnOpenAddModelModal'),
+    btnResetDefaultModels: document.getElementById('btnResetDefaultModels'),
+    manageModelDetail: document.getElementById('manageModelDetail'),
+    detailModelTitle: document.getElementById('detailModelTitle'),
+    detailModelBadge: document.getElementById('detailModelBadge'),
+    btnApplySelectedModel: document.getElementById('btnApplySelectedModel'),
+    editModelName: document.getElementById('editModelName'),
+    editModelCurrency: document.getElementById('editModelCurrency'),
+    symbolInputRate: document.getElementById('symbolInputRate'),
+    editModelInput: document.getElementById('editModelInput'),
+    symbolCacheRate: document.getElementById('symbolCacheRate'),
+    editModelCache: document.getElementById('editModelCache'),
+    symbolOutputRate: document.getElementById('symbolOutputRate'),
+    editModelOutput: document.getElementById('editModelOutput'),
+    editModelNote: document.getElementById('editModelNote'),
+    btnSaveModelEdit: document.getElementById('btnSaveModelEdit'),
+    btnDeleteModel: document.getElementById('btnDeleteModel'),
+
+    // 智能导入弹窗 (三级)
+    addModelModal: document.getElementById('addModelModal'),
+    btnCloseAddModal: document.getElementById('btnCloseAddModal'),
+    btnCancelAddModal: document.getElementById('btnCancelAddModal'),
+    btnCopyAiPrompt: document.getElementById('btnCopyAiPrompt'),
+    aiPromptCodeBox: document.getElementById('aiPromptCodeBox'),
+    btnLoadExample: document.getElementById('btnLoadExample'),
+    importConfigText: document.getElementById('importConfigText'),
+    importPreviewContainer: document.getElementById('importPreviewContainer'),
+    parseStatusBar: document.getElementById('parseStatusBar'),
+    btnConfirmImportModel: document.getElementById('btnConfirmImportModel')
+  };
+
+  // 工具函数
+  function formatTokens(n) {
+    if (!n || n === 0) return '0';
+    if (n >= 1000000000) return (n / 1000000000).toFixed(2) + 'B';
+    if (n >= 1000000) return (n / 1000000).toFixed(2) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  function calcHitRateStr(cache, inp) {
+    const denom = (cache || 0) + (inp || 0);
+    if (denom <= 0) return '0.0%';
+    return ((cache / denom) * 100).toFixed(1) + '%';
+  }
+
+  // 高性能纯内存计费重算引擎 (无任何临时文件与冗余开销)
+  function calcCost(model, inpTokens, cacheTokens, outTokens) {
+    const m = model || getActiveModel();
+    const inp = ((inpTokens || 0) / 1000000) * (m.inputRate || 0);
+    const cache = ((cacheTokens || 0) / 1000000) * (m.cacheRate || 0);
+    const out = ((outTokens || 0) / 1000000) * (m.outputRate || 0);
+    return inp + cache + out;
+  }
+
+  // 汇率换算基准 (固定汇率基准 1 USD = 7.2 CNY)
+  const USD_CNY_RATE = 7.2;
+
+  // 将任意模型计算出的金额统一换算为人民币 (CNY ¥)
+  function toCnyCost(model, costVal) {
+    const m = model || getActiveModel();
+    if (m && m.currency === 'USD') {
+      return (costVal || 0) * USD_CNY_RATE;
+    }
+    return costVal || 0;
+  }
+
+  // 总表统计主金额：一律以人民币为主大字显示 (¥X.XX)
+  function formatKpiMainCost(model, costVal) {
+    const cny = toCnyCost(model, costVal);
+    return `¥${cny.toFixed(2)}`;
+  }
+
+  // 总表统计副金额：美元为辅（人民币为主，美元为辅）
+  function formatKpiSubCost(model, costVal) {
+    const m = model || getActiveModel();
+    if (m && m.currency === 'USD') {
+      return `原价 $${Number(costVal || 0).toFixed(2)} USD (按 1:${USD_CNY_RATE})`;
+    } else {
+      return `约 $${(Number(costVal || 0) / USD_CNY_RATE).toFixed(2)} USD (按 1:${USD_CNY_RATE})`;
+    }
+  }
+
+  // 表格单元格费用 (每日日记、每项目表格)：默认人民币单位
+  // 对于原计价不是人民币的 (如 USD)，在主金额下方用小字表示原价格相当于多少美金
+  function formatLedgerCost(model, costVal) {
+    const m = model || getActiveModel();
+    const cny = toCnyCost(m, costVal);
+    if (m && m.currency === 'USD') {
+      return `
+        <div class="cost-cny-main">¥${cny.toFixed(2)}</div>
+        <div class="cost-usd-sub">($${Number(costVal || 0).toFixed(2)})</div>
+      `;
+    }
+    return `<div class="cost-cny-main">¥${cny.toFixed(2)}</div>`;
+  }
+
+  // 内联小计费用 (如日小计、周小计、全景卡片)：主金额为人民币，美元模型尾随小字括号
+  function formatInlineCost(model, costVal) {
+    const m = model || getActiveModel();
+    const cny = toCnyCost(m, costVal);
+    if (m && m.currency === 'USD') {
+      return `¥${cny.toFixed(2)} <span class="cost-inline-usd">($${Number(costVal || 0).toFixed(2)})</span>`;
+    }
+    return `¥${cny.toFixed(2)}`;
+  }
+
+  // 基础兼容别名
+  function formatCost(model, costVal) {
+    return formatInlineCost(model, costVal);
+  }
+
+  function showToast(msg) {
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    setTimeout(() => {
+      el.toast.classList.remove('show');
+    }, 2200);
+  }
+
+  function copyToClipboard(text, label) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(`已复制 ${label || ''}: ${text}`);
+      }).catch(() => {
+        promptCopy(text);
+      });
+    } else {
+      promptCopy(text);
+    }
+  }
+
+  function promptCopy(text) {
+    const input = document.createElement('input');
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand('copy');
+    document.body.removeChild(input);
+    showToast(`已复制: ${text}`);
+  }
+
+  // 初始化与事件绑定
+  function init() {
+    // 恢复主题偏好
+    const savedTheme = localStorage.getItem('myccusage_theme');
+    if (savedTheme === 'light') {
+      setTheme(false);
+    }
+
+    // 恢复计价模型偏好 (记住上一次的选择)
+    const savedPricing = localStorage.getItem('myccusage_pricing_model');
+    const allModels = getAllPricingModels();
+    if (savedPricing && allModels[savedPricing]) {
+      setPricingModel(savedPricing, false);
+    } else {
+      setPricingModel('deepseek-v4-flash', false);
+    }
+
+    // 渲染下拉菜单
+    renderPricingDropdownMenu();
+
+    // Web 端默认倒序时间文本
+    if (el.btnSortTime) {
+      el.btnSortTime.textContent = '时间倒序 (最新在顶)';
+    }
+
+    // 启动心跳保活与页面关闭联动退出机制
+    startHeartbeat();
+
+    bindEvents();
+    loadData();
+  }
+
+  // 心跳保活与自动退出联动机制
+  function startHeartbeat() {
+    const sendPing = () => {
+      fetch('/api/ping', { method: 'GET', cache: 'no-store' }).catch(() => {});
+    };
+    sendPing();
+    setInterval(sendPing, 2500);
+
+    window.addEventListener('beforeunload', () => {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/leave');
+      }
+    });
+  }
+
+  // 渲染计价模型下拉菜单
+  function renderPricingDropdownMenu() {
+    if (!el.pricingOptionsList) return;
+    const allModels = getAllPricingModels();
+    const currentId = state.pricingModel;
+
+    let html = '';
+    Object.values(allModels).forEach(m => {
+      const isActive = m.id === currentId;
+      html += `
+        <div class="pricing-option ${isActive ? 'active' : ''}" data-model="${m.id}">
+          <div class="option-row">
+            <span class="option-name">${escapeHtml(m.name)}</span>
+            <span class="option-check" style="display: ${isActive ? 'inline' : 'none'};">✓</span>
+          </div>
+        </div>
+      `;
+    });
+
+    el.pricingOptionsList.innerHTML = html;
+
+    // 绑定鼠标悬停右侧展开该模型计费规则卡片（彻底解决滚动列表 overflow-y 导致的横向截断）
+    el.pricingOptionsList.querySelectorAll('.pricing-option').forEach(item => {
+      const modelId = item.getAttribute('data-model');
+      const m = allModels[modelId];
+
+      item.addEventListener('mouseenter', () => {
+        if (!m || !el.pricingFloatingPopover) return;
+        const sym = m.currency === 'USD' ? '$' : '¥';
+        el.pricingFloatingPopover.innerHTML = `
+          <div class="popover-header">
+            <strong>${escapeHtml(m.name)}</strong>
+            <span class="popover-badge">${m.isBuiltin ? (m.badge || '官方预设') : '自定义模型'}</span>
+          </div>
+          <div class="popover-rule-list">
+            <div class="popover-rule-item">
+              <span class="rule-tag tag-input">输入未命中</span>
+              <span class="rule-price">${sym} ${formatRate(m.inputRate)} / 1M</span>
+            </div>
+            <div class="popover-rule-item">
+              <span class="rule-tag tag-cache">KV 缓存命中</span>
+              <span class="rule-price">${sym} ${formatRate(m.cacheRate)} / 1M</span>
+            </div>
+            <div class="popover-rule-item">
+              <span class="rule-tag tag-output">输出 + 思维链</span>
+              <span class="rule-price">${sym} ${formatRate(m.outputRate)} / 1M</span>
+            </div>
+          </div>
+          <div class="popover-desc">
+            ${escapeHtml(m.note || '按 Total = Input + Cache + Output 守恒精确折算')}
+          </div>
+        `;
+
+        if (el.pricingMenu) {
+          const itemRect = item.getBoundingClientRect();
+          const menuRect = el.pricingMenu.getBoundingClientRect();
+          const topOffset = itemRect.top - menuRect.top;
+          el.pricingFloatingPopover.style.top = `${Math.max(0, topOffset)}px`;
+        }
+        el.pricingFloatingPopover.classList.add('visible');
+      });
+    });
+
+    el.pricingOptionsList.addEventListener('mouseleave', () => {
+      if (el.pricingFloatingPopover) el.pricingFloatingPopover.classList.remove('visible');
+    });
+
+    el.pricingOptionsList.addEventListener('scroll', () => {
+      if (el.pricingFloatingPopover) el.pricingFloatingPopover.classList.remove('visible');
+    });
+  }
+
+  function setPricingModel(modelId, notify = false) {
+    const allModels = getAllPricingModels();
+    if (!allModels[modelId]) {
+      modelId = 'deepseek-v4-flash';
+    }
+    state.pricingModel = modelId;
+    localStorage.setItem('myccusage_pricing_model', modelId);
+    const model = allModels[modelId];
+
+    if (el.selectedPricingName) {
+      el.selectedPricingName.textContent = model.name;
+    }
+
+    renderPricingDropdownMenu();
+
+    if (notify) {
+      showToast(`已选择计价模型: ${model.name}`);
+    }
+
+    // 动态全站重算 (即时响应，零冗余开销)
+    if (state.data) {
+      renderDashboard(state.data);
+    } else if (state.allAgentsData) {
+      renderAllAgentsOverview(state.allAgentsData);
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // 计费模型管理弹窗 (二级)
+  // ------------------------------------------------------------------------
+  function openModelManager() {
+    state.managingModelId = state.pricingModel;
+    renderManagerModelList();
+    renderManagerDetail(state.managingModelId);
+    el.modelManagerModal.style.display = 'flex';
+  }
+
+  function closeModelManager() {
+    el.modelManagerModal.style.display = 'none';
+  }
+
+  function renderManagerModelList() {
+    const all = getAllPricingModels();
+    const count = Object.keys(all).length;
+    if (el.modelCountBadge) el.modelCountBadge.textContent = `${count} 款`;
+
+    let html = '';
+    Object.values(all).forEach(m => {
+      const isSelected = m.id === state.managingModelId;
+      const isActiveInDashboard = m.id === state.pricingModel;
+      const sym = m.currency === 'USD' ? '$' : '¥';
+      html += `
+        <div class="model-list-item ${isSelected ? 'active' : ''}" data-id="${m.id}">
+          <div class="model-item-title-row">
+            <span class="model-item-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>
+            <div style="display:flex; align-items:center; gap:4px;">
+              ${isActiveInDashboard ? `<span class="badge badge-green" style="font-size:0.65rem; padding:1px 4px;">当前使用</span>` : ''}
+              <span class="badge ${m.isBuiltin ? 'badge-blue' : 'badge-purple'}" style="font-size:0.65rem; padding:1px 4px;">
+                ${m.isBuiltin ? '预设' : '自定义'}
+              </span>
+            </div>
+          </div>
+          <div class="model-item-rates">
+            <span>入: ${sym}${formatRate(m.inputRate)}</span>
+            <span>缓: ${sym}${formatRate(m.cacheRate)}</span>
+            <span>出: ${sym}${formatRate(m.outputRate)}</span>
+          </div>
+        </div>
+      `;
+    });
+    el.manageModelList.innerHTML = html;
+
+    el.manageModelList.querySelectorAll('.model-list-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const id = item.getAttribute('data-id');
+        renderManagerDetail(id);
+      });
+    });
+  }
+
+  function renderManagerDetail(modelId) {
+    const all = getAllPricingModels();
+    const m = all[modelId] || Object.values(all)[0] || DEFAULT_PRICING_MODELS['deepseek-v4-flash'];
+    state.managingModelId = m.id;
+
+    el.manageModelList.querySelectorAll('.model-list-item').forEach(it => {
+      it.classList.toggle('active', it.getAttribute('data-id') === m.id);
+    });
+
+    el.detailModelTitle.textContent = m.name;
+    el.detailModelBadge.textContent = m.isBuiltin ? (m.isModified ? '预设 (已修改)' : '预设模型') : '自定义模型';
+    el.detailModelBadge.className = `badge ${m.isBuiltin ? 'badge-blue' : 'badge-purple'}`;
+
+    el.editModelName.value = m.name;
+    el.editModelCurrency.value = m.currency || 'CNY';
+    updateCurrencySymbols(m.currency || 'CNY');
+
+    el.editModelInput.value = m.inputRate;
+    el.editModelCache.value = m.cacheRate;
+    el.editModelOutput.value = m.outputRate;
+    el.editModelNote.value = m.note || '';
+
+    // 用户可自由修改和删除任何模型（包括系统默认模型）
+    el.editModelName.disabled = false;
+    el.editModelCurrency.disabled = false;
+    el.editModelInput.disabled = false;
+    el.editModelCache.disabled = false;
+    el.editModelOutput.disabled = false;
+    el.editModelNote.disabled = false;
+    el.btnSaveModelEdit.disabled = false;
+    el.btnDeleteModel.disabled = false;
+    el.btnDeleteModel.title = '删除此模型';
+
+    const isAlreadyActive = m.id === state.pricingModel;
+    el.btnApplySelectedModel.disabled = isAlreadyActive;
+    el.btnApplySelectedModel.textContent = isAlreadyActive ? '✓ 当前已在使用' : '设为当前使用';
+  }
+
+  function updateCurrencySymbols(currency) {
+    const sym = currency === 'USD' ? '$' : '¥';
+    if (el.symbolInputRate) el.symbolInputRate.textContent = sym;
+    if (el.symbolCacheRate) el.symbolCacheRate.textContent = sym;
+    if (el.symbolOutputRate) el.symbolOutputRate.textContent = sym;
+  }
+
+  function saveModelEdit() {
+    const all = getAllPricingModels();
+    const currentId = state.managingModelId;
+    const existing = all[currentId];
+    if (!existing) {
+      showToast('⚠️ 未找到要修改的模型');
+      return;
+    }
+
+    const name = el.editModelName.value.trim();
+    const currency = el.editModelCurrency.value;
+    const inputRate = parseFloat(el.editModelInput.value);
+    const cacheRate = parseFloat(el.editModelCache.value);
+    const outputRate = parseFloat(el.editModelOutput.value);
+    const note = el.editModelNote.value.trim();
+
+    if (!name) {
+      showToast('❌ 模型名称不能为空');
+      return;
+    }
+    if (isNaN(inputRate) || inputRate < 0 || isNaN(cacheRate) || cacheRate < 0 || isNaN(outputRate) || outputRate < 0) {
+      showToast('❌ 费率必须为大于等于 0 的有效数字');
+      return;
+    }
+
+    const customModels = getCustomModels();
+    const updatedModel = Object.assign({}, existing, {
+      name,
+      currency,
+      inputRate,
+      cacheRate,
+      outputRate,
+      note,
+      isModified: true
+    });
+
+    customModels[currentId] = updatedModel;
+    saveCustomModels(customModels);
+
+    renderManagerModelList();
+    renderManagerDetail(currentId);
+    renderPricingDropdownMenu();
+
+    if (state.pricingModel === currentId) {
+      el.selectedPricingName.textContent = updatedModel.name;
+      if (state.data) renderDashboard(state.data);
+      else if (state.allAgentsData) renderAllAgentsOverview(state.allAgentsData);
+    }
+
+    showToast(`✅ 已保存模型修改: ${updatedModel.name}`);
+  }
+
+  function deleteCurrentModel() {
+    const all = getAllPricingModels();
+    const currentId = state.managingModelId;
+    const m = all[currentId];
+    if (!m) {
+      showToast('⚠️ 未找到要删除的模型');
+      return;
+    }
+
+    if (Object.keys(all).length <= 1) {
+      showToast('⚠️ 至少保留一款计费模型，无法删除全部');
+      return;
+    }
+
+    if (!confirm(`确定要彻底删除模型「${m.name}」吗？删除后可在右上角重置恢复预设。`)) {
+      return;
+    }
+
+    // 从自定义中删除（如果有）
+    const customModels = getCustomModels();
+    delete customModels[currentId];
+    saveCustomModels(customModels);
+
+    // 记录到已删除集合
+    const deletedIds = getDeletedModelIds();
+    if (!deletedIds.includes(currentId)) {
+      deletedIds.push(currentId);
+      saveDeletedModelIds(deletedIds);
+    }
+
+    // 挑选剩余有效模型
+    const remaining = getAllPricingModels();
+    const nextModelId = Object.keys(remaining)[0];
+
+    if (state.pricingModel === currentId) {
+      setPricingModel(nextModelId, false);
+    }
+
+    state.managingModelId = nextModelId;
+    renderManagerModelList();
+    renderManagerDetail(nextModelId);
+    renderPricingDropdownMenu();
+    showToast(`已删除模型: ${m.name}`);
+  }
+
+  function resetAllDefaultModels() {
+    if (!confirm('确定要重置所有系统预设模型并恢复被删除的默认模型吗？（自定义导入的模型将保留）')) {
+      return;
+    }
+    // 清除已删除列表
+    saveDeletedModelIds([]);
+    // 清除对预设模型的覆写
+    const customModels = getCustomModels();
+    Object.keys(DEFAULT_PRICING_MODELS).forEach(id => {
+      delete customModels[id];
+    });
+    saveCustomModels(customModels);
+
+    renderManagerModelList();
+    const active = getActiveModel();
+    renderManagerDetail(active.id);
+    renderPricingDropdownMenu();
+    if (state.data) renderDashboard(state.data);
+    else if (state.allAgentsData) renderAllAgentsOverview(state.allAgentsData);
+    showToast('✨ 已恢复所有系统默认预设模型');
+  }
+
+  // ------------------------------------------------------------------------
+  // 智能导入 / 新增模型弹窗 (三级) & 高容错解析器
+  // ------------------------------------------------------------------------
+  function openAddModelModal() {
+    el.importConfigText.value = '';
+    resetParsePreview();
+    el.addModelModal.style.display = 'flex';
+    setTimeout(() => {
+      el.importConfigText.focus();
+    }, 100);
+  }
+
+  function closeAddModelModal() {
+    el.addModelModal.style.display = 'none';
+  }
+
+  function resetParsePreview() {
+    el.parseStatusBar.className = 'parse-status-bar';
+    el.parseStatusBar.innerHTML = `<span class="status-indicator">⚪ 请输入或粘贴模型配置文本</span>`;
+    const details = el.importPreviewContainer.querySelector('.parse-preview-details');
+    if (details) details.remove();
+    el.btnConfirmImportModel.disabled = true;
+    parsedImportModel = null;
+  }
+
+  let parsedImportModel = null;
+
+  function parsePricingConfig(rawText) {
+    if (!rawText || !rawText.trim()) {
+      return { valid: false, errors: ['请输入或粘贴模型配置文本'] };
+    }
+
+    let text = rawText.trim();
+    // 自动剥离 Markdown 代码块标记（如 ```pricing ... ``` 或 ```yaml ... ``` 或 ```json ... ```）
+    text = text.replace(/^```[a-zA-Z0-9_-]*\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
+
+    // 尝试直接作为 JSON 解析
+    if (text.startsWith('{') && text.endsWith('}')) {
+      try {
+        const obj = JSON.parse(text);
+        const name = (obj.name || obj.model || obj.title || '').trim();
+        let currency = (obj.currency || obj.unit || 'CNY').toUpperCase();
+        if (currency.includes('$') || currency.includes('USD')) currency = 'USD';
+        else currency = 'CNY';
+
+        const inputRate = parseFloat(obj.input || obj.inputRate || obj.input_rate);
+        const cacheRate = parseFloat(obj.cache || obj.cacheRate || obj.cache_hit);
+        const outputRate = parseFloat(obj.output || obj.outputRate || obj.output_rate);
+        const note = (obj.note || obj.desc || obj.description || '').trim();
+
+        const errors = [];
+        if (!name) errors.push('缺少模型名称 (name)');
+        if (isNaN(inputRate) || inputRate < 0) errors.push('输入未命中价格 (inputRate) 无效');
+        if (isNaN(cacheRate) || cacheRate < 0) errors.push('缓存命中价格 (cacheRate) 无效');
+        if (isNaN(outputRate) || outputRate < 0) errors.push('输出单价 (outputRate) 无效');
+
+        if (errors.length > 0) {
+          return { valid: false, errors };
+        }
+        return {
+          valid: true,
+          model: {
+            name,
+            currency,
+            inputRate,
+            cacheRate,
+            outputRate,
+            note: note || `官方计费标准 (输入 ${currency === 'USD' ? '$' : '¥'}${inputRate}/M | 缓存 ${currency === 'USD' ? '$' : '¥'}${cacheRate}/M | 输出 ${currency === 'USD' ? '$' : '¥'}${outputRate}/M)`
+          }
+        };
+      } catch (e) {}
+    }
+
+    // 键值对逐行解析
+    const lines = text.split('\n');
+    const parsed = {};
+
+    function extractFirstNum(str) {
+      if (!str) return NaN;
+      const match = str.match(/([0-9]+(?:\.[0-9]+)?)/);
+      return match ? parseFloat(match[1]) : NaN;
+    }
+
+    lines.forEach(line => {
+      line = line.trim();
+      if (!line || line.startsWith('#') || line.startsWith('//')) return;
+
+      const sepIdx = line.indexOf(':') !== -1 ? line.indexOf(':') : line.indexOf('：');
+      if (sepIdx === -1) return;
+
+      const key = line.slice(0, sepIdx).trim().toLowerCase();
+      const val = line.slice(sepIdx + 1).trim();
+
+      if (['name', 'model', '模型', '模型名', '模型名称', '名称', 'title'].includes(key)) {
+        parsed.name = val;
+      } else if (['currency', '货币', '单位', '币种', 'unit'].includes(key)) {
+        if (val.toUpperCase().includes('USD') || val.includes('$') || val.includes('美元')) {
+          parsed.currency = 'USD';
+        } else {
+          parsed.currency = 'CNY';
+        }
+      } else if (['input', 'inputrate', 'input_rate', '输入', '输入价格', '输入未命中', '输入未命中价格', '未命中'].includes(key)) {
+        parsed.inputRate = extractFirstNum(val);
+        if (val.includes('$') && !parsed.currency) parsed.currency = 'USD';
+      } else if (['cache', 'cacherate', 'cache_rate', 'cache_hit', '缓存', '缓存命中', '缓存命中价格', '缓存单价', '命中'].includes(key)) {
+        parsed.cacheRate = extractFirstNum(val);
+      } else if (['output', 'outputrate', 'output_rate', '输出', '输出价格', '思考与输出', '思维链', '输出单价'].includes(key)) {
+        parsed.outputRate = extractFirstNum(val);
+      } else if (['note', 'desc', 'description', '备注', '说明', '场景'].includes(key)) {
+        parsed.note = val;
+      }
+    });
+
+    const errors = [];
+    if (!parsed.name || !parsed.name.trim()) {
+      errors.push('缺少模型名称 (name)');
+    }
+    if (parsed.inputRate === undefined || isNaN(parsed.inputRate) || parsed.inputRate < 0) {
+      errors.push('缺少或无效的输入价格 (input)');
+    }
+    if (parsed.cacheRate === undefined || isNaN(parsed.cacheRate) || parsed.cacheRate < 0) {
+      errors.push('缺少或无效的缓存命中价格 (cache)');
+    }
+    if (parsed.outputRate === undefined || isNaN(parsed.outputRate) || parsed.outputRate < 0) {
+      errors.push('缺少或无效的输出价格 (output)');
+    }
+
+    if (errors.length > 0) {
+      return { valid: false, errors };
+    }
+
+    const currency = parsed.currency || 'CNY';
+    const sym = currency === 'USD' ? '$' : '¥';
+    return {
+      valid: true,
+      model: {
+        name: parsed.name.trim(),
+        currency: currency,
+        inputRate: parsed.inputRate,
+        cacheRate: parsed.cacheRate,
+        outputRate: parsed.outputRate,
+        note: parsed.note ? parsed.note.trim() : `官方计费标准 (输入 ${sym}${parsed.inputRate}/M | 缓存 ${sym}${parsed.cacheRate}/M | 输出 ${sym}${parsed.outputRate}/M)`
+      }
+    };
+  }
+
+  function handleImportTextChange() {
+    const text = el.importConfigText.value;
+    if (!text || !text.trim()) {
+      resetParsePreview();
+      return;
+    }
+
+    const res = parsePricingConfig(text);
+    if (!res.valid) {
+      parsedImportModel = null;
+      el.btnConfirmImportModel.disabled = true;
+      el.parseStatusBar.className = 'parse-status-bar error';
+      el.parseStatusBar.innerHTML = `<span>❌ 解析错误: ${res.errors.join('；')}</span>`;
+      const details = el.importPreviewContainer.querySelector('.parse-preview-details');
+      if (details) details.remove();
+    } else {
+      parsedImportModel = res.model;
+      el.btnConfirmImportModel.disabled = false;
+      el.parseStatusBar.className = 'parse-status-bar valid';
+      el.parseStatusBar.innerHTML = `<span>✅ 格式解析成功: <strong>${escapeHtml(res.model.name)}</strong></span>`;
+
+      const sym = res.model.currency === 'USD' ? '$' : '¥';
+      let details = el.importPreviewContainer.querySelector('.parse-preview-details');
+      if (!details) {
+        details = document.createElement('div');
+        details.className = 'parse-preview-details';
+        el.importPreviewContainer.appendChild(details);
+      }
+      details.innerHTML = `
+        <div class="preview-tag">
+          <span class="preview-tag-label">币种单位</span>
+          <span class="preview-tag-val">${res.model.currency} (${sym})</span>
+        </div>
+        <div class="preview-tag">
+          <span class="preview-tag-label">输入未命中</span>
+          <span class="preview-tag-val" style="color:var(--color-input);">${sym}${formatRate(res.model.inputRate)}/M</span>
+        </div>
+        <div class="preview-tag">
+          <span class="preview-tag-label">缓存命中</span>
+          <span class="preview-tag-val" style="color:var(--color-cache);">${sym}${formatRate(res.model.cacheRate)}/M</span>
+        </div>
+        <div class="preview-tag">
+          <span class="preview-tag-label">输出思考</span>
+          <span class="preview-tag-val" style="color:var(--color-output);">${sym}${formatRate(res.model.outputRate)}/M</span>
+        </div>
+        <div class="preview-tag" style="grid-column: span 2;">
+          <span class="preview-tag-label">备注说明</span>
+          <span class="preview-tag-val" style="font-size:0.72rem; color:var(--text-muted);">${escapeHtml(res.model.note)}</span>
+        </div>
+      `;
+    }
+  }
+
+  function confirmImportModel() {
+    if (!parsedImportModel) return;
+    const modelId = 'model_' + Date.now();
+    const newModel = Object.assign({}, parsedImportModel, {
+      id: modelId,
+      badge: '自定义',
+      isBuiltin: false
+    });
+
+    const customModels = getCustomModels();
+    customModels[modelId] = newModel;
+    saveCustomModels(customModels);
+
+    setPricingModel(modelId, false);
+
+    closeAddModelModal();
+    closeModelManager();
+
+    showToast(`🎉 已成功导入并启用模型: ${newModel.name}`);
+  }
+
+  function bindEvents() {
+    // 计价模型下拉展开/收起
+    if (el.pricingTrigger) {
+      el.pricingTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.pricingDropdownContainer.classList.toggle('open');
+        if (!el.pricingDropdownContainer.classList.contains('open') && el.pricingFloatingPopover) {
+          el.pricingFloatingPopover.classList.remove('visible');
+        }
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (el.pricingDropdownContainer && !el.pricingDropdownContainer.contains(e.target)) {
+        el.pricingDropdownContainer.classList.remove('open');
+        if (el.pricingFloatingPopover) el.pricingFloatingPopover.classList.remove('visible');
+      }
+    });
+
+    // 下拉菜单内点选模型
+    if (el.pricingOptionsList) {
+      el.pricingOptionsList.addEventListener('click', (e) => {
+        const opt = e.target.closest('.pricing-option');
+        if (!opt) return;
+        const modelId = opt.getAttribute('data-model');
+        if (el.pricingFloatingPopover) el.pricingFloatingPopover.classList.remove('visible');
+        setPricingModel(modelId, true);
+        el.pricingDropdownContainer.classList.remove('open');
+      });
+    }
+
+    // 下拉顶部管理入口
+    if (el.btnOpenModelManager) {
+      el.btnOpenModelManager.addEventListener('click', (e) => {
+        e.stopPropagation();
+        el.pricingDropdownContainer.classList.remove('open');
+        openModelManager();
+      });
+    }
+
+    // 模型管理弹窗操作
+    if (el.btnCloseManagerModal) {
+      el.btnCloseManagerModal.addEventListener('click', closeModelManager);
+    }
+    if (el.modelManagerModal) {
+      el.modelManagerModal.addEventListener('click', (e) => {
+        if (e.target === el.modelManagerModal) closeModelManager();
+      });
+    }
+    if (el.btnOpenAddModelModal) {
+      el.btnOpenAddModelModal.addEventListener('click', openAddModelModal);
+    }
+    if (el.editModelCurrency) {
+      el.editModelCurrency.addEventListener('change', () => {
+        updateCurrencySymbols(el.editModelCurrency.value);
+      });
+    }
+    if (el.btnApplySelectedModel) {
+      el.btnApplySelectedModel.addEventListener('click', () => {
+        setPricingModel(state.managingModelId, true);
+        renderManagerModelList();
+        renderManagerDetail(state.managingModelId);
+      });
+    }
+    if (el.btnSaveModelEdit) {
+      el.btnSaveModelEdit.addEventListener('click', saveModelEdit);
+    }
+    if (el.btnDeleteModel) {
+      el.btnDeleteModel.addEventListener('click', deleteCurrentModel);
+    }
+    if (el.btnResetDefaultModels) {
+      el.btnResetDefaultModels.addEventListener('click', resetAllDefaultModels);
+    }
+
+    // 智能导入弹窗操作
+    if (el.btnCloseAddModal) {
+      el.btnCloseAddModal.addEventListener('click', closeAddModelModal);
+    }
+    if (el.btnCancelAddModal) {
+      el.btnCancelAddModal.addEventListener('click', closeAddModelModal);
+    }
+    if (el.addModelModal) {
+      el.addModelModal.addEventListener('click', (e) => {
+        if (e.target === el.addModelModal) closeAddModelModal();
+      });
+    }
+    if (el.btnCopyAiPrompt) {
+      el.btnCopyAiPrompt.addEventListener('click', () => {
+        const promptText = el.aiPromptCodeBox ? el.aiPromptCodeBox.textContent : '';
+        copyToClipboard(promptText, 'AI 提示词');
+      });
+    }
+    if (el.btnLoadExample) {
+      el.btnLoadExample.addEventListener('click', () => {
+        el.importConfigText.value = '```pricing\nname: Claude 3.5 Sonnet\ncurrency: USD\ninput: 3.0\ncache: 0.3\noutput: 15.0\nnote: 官方标准计费 (输入 $3/M | 缓存 $0.3/M | 输出 $15/M)\n```';
+        handleImportTextChange();
+      });
+    }
+    if (el.importConfigText) {
+      el.importConfigText.addEventListener('input', handleImportTextChange);
+    }
+    if (el.btnConfirmImportModel) {
+      el.btnConfirmImportModel.addEventListener('click', confirmImportModel);
+    }
+
+    // 切换 Agent
+    el.agentSelector.addEventListener('click', (e) => {
+      const btn = e.target.closest('.segment-btn');
+      if (!btn) return;
+      const agent = btn.getAttribute('data-agent');
+      if (agent === state.agent) return;
+
+      document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.agent = agent;
+      loadData();
+    });
+
+    // 切换模式 (Daily vs Session)
+    el.modeSelector.addEventListener('click', (e) => {
+      const btn = e.target.closest('.tab-btn');
+      if (!btn) return;
+      const mode = btn.getAttribute('data-mode');
+      if (mode === state.mode) return;
+
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.mode = mode;
+      loadData();
+    });
+
+    // 排序按钮 (点击时间按钮支持在倒序和正序间切换，默认倒序)
+    el.btnSortTime.addEventListener('click', () => {
+      if (state.sort === 'time') {
+        state.timeSortOrder = state.timeSortOrder === 'desc' ? 'asc' : 'desc';
+      } else {
+        state.sort = 'time';
+        state.timeSortOrder = 'desc'; // 重新切回时间排序时优先倒序
+      }
+      el.btnSortTime.classList.add('active');
+      el.btnSortTokens.classList.remove('active');
+      el.btnSortTime.textContent = state.timeSortOrder === 'desc' ? '时间倒序 (最新在顶)' : '时间正序 (最新在底)';
+      filterAndRenderLedger();
+    });
+
+    el.btnSortTokens.addEventListener('click', () => {
+      if (state.sort === 'tokens') return;
+      state.sort = 'tokens';
+      el.btnSortTokens.classList.add('active');
+      el.btnSortTime.classList.remove('active');
+      filterAndRenderLedger();
+    });
+
+    // 刷新按钮 (强制刷新今日切片)
+    el.btnRefresh.addEventListener('click', () => {
+      refreshData();
+    });
+
+    // 主题切换
+    el.btnThemeToggle.addEventListener('click', () => {
+      setTheme(!state.isDarkTheme);
+    });
+
+    // 实时搜索
+    el.searchInput.addEventListener('input', (e) => {
+      state.searchQuery = e.target.value.trim().toLowerCase();
+      el.btnClearSearch.style.display = state.searchQuery ? 'block' : 'none';
+      filterAndRenderLedger();
+    });
+
+    el.btnClearSearch.addEventListener('click', () => {
+      el.searchInput.value = '';
+      state.searchQuery = '';
+      el.btnClearSearch.style.display = 'none';
+      filterAndRenderLedger();
+    });
+
+    // 全部折叠/展开
+    el.btnToggleAllAccordion.addEventListener('click', () => {
+      const isExpand = el.btnToggleAllAccordion.textContent.includes('展开');
+      const weeks = document.querySelectorAll('.week-card');
+      const days = document.querySelectorAll('.day-block');
+      weeks.forEach(w => w.classList.toggle('collapsed', !isExpand));
+      days.forEach(d => d.classList.toggle('collapsed', !isExpand));
+      el.btnToggleAllAccordion.textContent = isExpand ? '收起全部' : '展开全部';
+    });
+  }
+
+  function setTheme(isDark) {
+    state.isDarkTheme = isDark;
+    if (isDark) {
+      document.body.classList.remove('light-theme');
+      document.body.classList.add('dark-theme');
+      el.themeIcon.textContent = '🌙';
+      localStorage.setItem('myccusage_theme', 'dark');
+    } else {
+      document.body.classList.remove('dark-theme');
+      document.body.classList.add('light-theme');
+      el.themeIcon.textContent = '☀️';
+      localStorage.setItem('myccusage_theme', 'light');
+    }
+    // 重新渲染图表以应用主题颜色
+    if (state.data) {
+      renderCharts(state.data);
+    }
+  }
+
+  // 数据拉取与渲染
+  async function loadData() {
+    el.ledgerContainer.innerHTML = `
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <p>正在拉取并解析会话数据...</p>
+      </div>
+    `;
+
+    if (state.agent === 'all') {
+      // 全景模式
+      el.chartsSection.style.display = 'none';
+      el.allAgentsSection.style.display = 'block';
+      try {
+        const res = await fetch('/api/all');
+        const json = await res.json();
+        state.allAgentsData = json;
+        renderAllAgentsOverview(json);
+      } catch (err) {
+        el.ledgerContainer.innerHTML = `<div class="empty-state">❌ 拉取全景数据失败: ${err.message}</div>`;
+      }
+      return;
+    }
+
+    el.chartsSection.style.display = 'grid';
+    el.allAgentsSection.style.display = 'none';
+
+    try {
+      const url = `/api/data?agent=${state.agent}&mode=${state.mode}&sort=${state.sort}`;
+      const res = await fetch(url);
+      const json = await res.json();
+
+      if (json.error) {
+        throw new Error(json.error);
+      }
+
+      state.data = json;
+      renderDashboard(json);
+    } catch (err) {
+      el.ledgerContainer.innerHTML = `
+        <div class="empty-state">
+          <p>⚠️ 无法加载数据: ${err.message}</p>
+          <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-muted);">
+            提示：请确认本机已执行过该 Agent，或尝试切换到其他 Agent。
+          </p>
+        </div>
+      `;
+    }
+  }
+
+  async function refreshData() {
+    const originalText = el.btnRefresh.innerHTML;
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.innerHTML = `<span class="icon">⏳</span> 刷新中...`;
+
+    try {
+      const url = `/api/refresh?agent=${state.agent}`;
+      const res = await fetch(url, { method: 'POST' });
+      const json = await res.json();
+
+      if (json.error) throw new Error(json.error);
+
+      showToast(`已成功同步最新切片数据！`);
+      await loadData();
+    } catch (err) {
+      showToast(`刷新失败: ${err.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.innerHTML = originalText;
+    }
+  }
+
+  function renderDashboard(data) {
+    renderKPIs(data);
+    renderCharts(data);
+    filterAndRenderLedger();
+  }
+
+  // 1. KPI 卡片渲染 (动态根据选中的模型计算费用，人民币为主，美元为辅)
+  function renderKPIs(data) {
+    const sum = data.summary;
+    const model = getActiveModel();
+    const currentCost = calcCost(model, sum.inputTokens, sum.cacheTokens, sum.outputTokens);
+
+    el.valTotalTokens.textContent = formatTokens(sum.totalTokens);
+    el.subTotalTokens.textContent = `Input: ${formatTokens(sum.inputTokens)} | Cache: ${formatTokens(sum.cacheTokens)} | Output: ${formatTokens(sum.outputTokens)}`;
+
+    el.valTotalCost.textContent = formatKpiMainCost(model, currentCost);
+    el.valTotalCostUsd.textContent = formatKpiSubCost(model, currentCost);
+
+    const costBadge = document.querySelector('.highlight-card .kpi-badge');
+    if (costBadge) costBadge.textContent = model.name;
+    const costTitle = document.querySelector('.highlight-card .kpi-title');
+    if (costTitle) costTitle.textContent = `${model.name} 等效费用`;
+
+    el.valCacheHitRate.textContent = `${sum.cacheHitRate.toFixed(1)}%`;
+    el.barCacheHit.style.width = `${Math.min(100, Math.max(0, sum.cacheHitRate))}%`;
+
+    if (data.mode === 'daily') {
+      el.badgeActivePeriod.textContent = '活动日';
+      el.valActiveDays.textContent = `${data.activeDaysCount} 天`;
+      const dailyAvg = data.activeDaysCount > 0 ? (sum.totalTokens / data.activeDaysCount) : 0;
+      el.subActiveDays.textContent = `日均约 ${formatTokens(dailyAvg)}`;
+      el.badgeRecordsType.textContent = '日度会话';
+      el.valRecordsCount.textContent = `${data.totalRecordsCount} 笔`;
+    } else {
+      el.badgeActivePeriod.textContent = '项目总览';
+      el.valActiveDays.textContent = `${data.totalRecordsCount} 个`;
+      el.subActiveDays.textContent = `全生命周期累计`;
+      el.badgeRecordsType.textContent = '任务统计';
+      el.valRecordsCount.textContent = `${data.totalRecordsCount} 个项目`;
+    }
+  }
+
+  // 2. 图表渲染 (动态联动选中模型费率，金额轴默认使用人民币 CNY ¥)
+  function renderCharts(data) {
+    if (typeof Chart === 'undefined') {
+      document.getElementById('trendChartFallback').style.display = 'block';
+      document.getElementById('donutChartFallback').style.display = 'block';
+      renderDonutLegendStats(data.summary);
+      return;
+    }
+
+    const isDark = state.isDarkTheme;
+    const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+    const textColor = isDark ? '#9ca3af' : '#475569';
+
+    if (state.trendChartInstance) {
+      state.trendChartInstance.destroy();
+    }
+
+    const model = getActiveModel();
+    const trend = data.dailyTrend || [];
+    const labels = trend.map(t => t.date.slice(5) + `(${t.weekday})`);
+    const outputTokens = trend.map(t => t.outputTokens);
+    const inputTokens = trend.map(t => t.inputTokens);
+    const cacheTokens = trend.map(t => t.cacheTokens);
+    const costData = trend.map(t => {
+      const c = calcCost(model, t.inputTokens, t.cacheTokens, t.outputTokens);
+      return Number(toCnyCost(model, c).toFixed(2));
+    });
+
+    el.trendChartTitle.textContent = data.mode === 'daily' 
+      ? `${data.displayName} 每日 Token 消耗趋势与等效费用走向 (CNY ¥)`
+      : `${data.displayName} 会话活跃分布与费用统计 (CNY ¥)`;
+
+    state.trendChartInstance = new Chart(el.trendChartCanvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Output',
+            data: outputTokens,
+            backgroundColor: '#f43f5e',
+            stack: 'tokens',
+            yAxisID: 'y'
+          },
+          {
+            label: 'Input (未命中)',
+            data: inputTokens,
+            backgroundColor: '#f59e0b',
+            stack: 'tokens',
+            yAxisID: 'y'
+          },
+          {
+            label: 'Cache (命中)',
+            data: cacheTokens,
+            backgroundColor: '#10b981',
+            stack: 'tokens',
+            yAxisID: 'y'
+          },
+          {
+            label: `等效费用 (CNY ¥)`,
+            data: costData,
+            type: 'line',
+            borderColor: '#818cf8',
+            backgroundColor: 'rgba(129, 140, 248, 0.15)',
+            borderWidth: 2.5,
+            pointBackgroundColor: '#6366f1',
+            pointRadius: 3,
+            fill: false,
+            tension: 0.25,
+            yAxisID: 'yCost'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function (ctx) {
+                if (ctx.dataset.yAxisID === 'yCost') {
+                  const val = ctx.raw;
+                  if (model.currency === 'USD') {
+                    const usdVal = (val / USD_CNY_RATE).toFixed(2);
+                    return `${ctx.dataset.label}: ¥${val} (原 $${usdVal} USD)`;
+                  }
+                  return `${ctx.dataset.label}: ¥${val}`;
+                }
+                return `${ctx.dataset.label}: ${formatTokens(ctx.raw)}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: textColor, font: { size: 10 } }
+          },
+          y: {
+            position: 'left',
+            stacked: true,
+            grid: { color: gridColor },
+            ticks: {
+              color: textColor,
+              callback: val => formatTokens(val)
+            }
+          },
+          yCost: {
+            position: 'right',
+            grid: { display: false },
+            ticks: {
+              color: '#818cf8',
+              callback: val => `¥${val}`
+            }
+          }
+        }
+      }
+    });
+
+    // 环形图 (Token 构成分析)
+    if (state.donutChartInstance) {
+      state.donutChartInstance.destroy();
+    }
+
+    const sum = data.summary;
+    state.donutChartInstance = new Chart(el.donutChartCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: ['Cache 命中', 'Input 未命中', 'Output (含CoT)'],
+        datasets: [{
+          data: [sum.cacheTokens, sum.inputTokens, sum.outputTokens],
+          backgroundColor: ['#10b981', '#f59e0b', '#f43f5e'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '72%',
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+
+    renderDonutLegendStats(sum);
+  }
+
+  function renderDonutLegendStats(sum) {
+    const tot = Math.max(1, sum.totalTokens);
+    const cachePct = ((sum.cacheTokens / tot) * 100).toFixed(1);
+    const inputPct = ((sum.inputTokens / tot) * 100).toFixed(1);
+    const outputPct = ((sum.outputTokens / tot) * 100).toFixed(1);
+    const model = getActiveModel();
+    const sym = model.currency === 'USD' ? '$' : '¥';
+
+    el.donutStats.innerHTML = `
+      <div class="donut-stat-item">
+        <div class="donut-stat-header">
+          <span><span class="legend-dot dot-cache"></span>Cache 命中 (${sym}${formatRate(model.cacheRate)}/M)</span>
+          <span style="font-family: monospace; font-weight:600;">${cachePct}% (${formatTokens(sum.cacheTokens)})</span>
+        </div>
+        <div class="donut-stat-bar">
+          <div class="donut-stat-fill" style="width: ${cachePct}%; background-color: var(--color-cache);"></div>
+        </div>
+      </div>
+      <div class="donut-stat-item">
+        <div class="donut-stat-header">
+          <span><span class="legend-dot dot-input"></span>Input 未命中 (${sym}${formatRate(model.inputRate)}/M)</span>
+          <span style="font-family: monospace; font-weight:600;">${inputPct}% (${formatTokens(sum.inputTokens)})</span>
+        </div>
+        <div class="donut-stat-bar">
+          <div class="donut-stat-fill" style="width: ${inputPct}%; background-color: var(--color-input);"></div>
+        </div>
+      </div>
+      <div class="donut-stat-item">
+        <div class="donut-stat-header">
+          <span><span class="legend-dot dot-output"></span>Output 思考+输出 (${sym}${formatRate(model.outputRate)}/M)</span>
+          <span style="font-family: monospace; font-weight:600;">${outputPct}% (${formatTokens(sum.outputTokens)})</span>
+        </div>
+        <div class="donut-stat-bar">
+          <div class="donut-stat-fill" style="width: ${outputPct}%; background-color: var(--color-output);"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  // 3. 全景对比视图渲染
+  function renderAllAgentsOverview(allData) {
+    const gs = allData.grandSummary;
+    const model = getActiveModel();
+    const grandCost = calcCost(model, gs.inputTokens, gs.cacheTokens, gs.outputTokens);
+
+    el.valTotalTokens.textContent = formatTokens(gs.totalTokens);
+    el.subTotalTokens.textContent = `全平台 7 大 Agent 累计消耗`;
+    el.valTotalCost.textContent = formatKpiMainCost(model, grandCost);
+    el.valTotalCostUsd.textContent = formatKpiSubCost(model, grandCost);
+    el.valCacheHitRate.textContent = `--`;
+    el.barCacheHit.style.width = '0%';
+    el.badgeActivePeriod.textContent = 'Agent 矩阵';
+    el.valActiveDays.textContent = `7 款支持`;
+    el.subActiveDays.textContent = `全景总览模式`;
+    el.badgeRecordsType.textContent = '总会话数';
+    el.valRecordsCount.textContent = `${gs.totalSessions} 笔`;
+
+    let html = '';
+    allData.agents.forEach(a => {
+      const aCost = calcCost(model, a.inputTokens, a.cacheTokens, a.outputTokens);
+      html += `
+        <div class="agent-stat-card" data-agent="${a.id}">
+          <div class="agent-stat-name">
+            <span>${a.name}</span>
+            <span class="badge ${a.totalTokens > 0 ? 'badge-blue' : 'badge-subtle'}">
+              ${a.recordsCount} 笔会话
+            </span>
+          </div>
+          <div class="agent-stat-values">
+            <span class="agent-token-num">${formatTokens(a.totalTokens)}</span>
+            <span class="agent-cost-num">${formatInlineCost(model, aCost)}</span>
+          </div>
+          <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
+            Prompt 缓存命中率: <strong style="color: var(--color-cache);">${a.cacheHitRate}%</strong>
+          </div>
+        </div>
+      `;
+    });
+    el.agentsOverviewGrid.innerHTML = html;
+
+    // 点击直接切换
+    el.agentsOverviewGrid.querySelectorAll('.agent-stat-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const ag = card.getAttribute('data-agent');
+        const targetBtn = document.querySelector(`.segment-btn[data-agent="${ag}"]`);
+        if (targetBtn) {
+          targetBtn.click();
+        }
+      });
+    });
+
+    el.ledgerContainer.innerHTML = `
+      <div class="empty-state">
+        <p>💡 点击上方任意 Agent 卡片可深入查看其精准每日账本与会话明细。</p>
+      </div>
+    `;
+    el.recordCounter.textContent = `共 ${allData.agents.length} 个 Agent`;
+  }
+
+  // 4. 账本/项目列表渲染与过滤
+  function filterAndRenderLedger() {
+    if (!state.data) return;
+    const data = state.data;
+    const q = state.searchQuery;
+
+    // 检查如果是按照 Token 排行（扁平列表）或 session 模式且指定了扁平结构
+    if (data.sortByTokens || (data.flatRecords && !data.weeks)) {
+      renderFlatTable(data.flatRecords, q);
+      return;
+    }
+
+    if (state.sort === 'tokens') {
+      renderFlatTable(data.flatRecords, q);
+      return;
+    }
+
+    // 时间排序 (树状周/日账本，默认 Web 端倒序)
+    renderGroupedAccordion(data.weeks, q);
+  }
+
+  function renderFlatTable(records, query) {
+    let filtered = query
+      ? records.filter(r => (r.title && r.title.toLowerCase().includes(query)) || (r.sessionId && r.sessionId.toLowerCase().includes(query)) || (r.date && r.date.includes(query)))
+      : [...records];
+
+    if (state.sort === 'tokens') {
+      filtered.sort((a, b) => (b.totalTokens || 0) - (a.totalTokens || 0));
+      el.recordCounter.textContent = `共 ${filtered.length} 条记录 (按 Token 消耗降序)`;
+    } else {
+      // 时间排序：Web 默认倒序 (最新在最顶上)
+      if (state.timeSortOrder === 'desc') {
+        filtered.sort((a, b) => (b.isoTime || b.lastActivity || b.time || '').localeCompare(a.isoTime || a.lastActivity || a.time || ''));
+        el.recordCounter.textContent = `共 ${filtered.length} 条记录 (按时间倒序 - 最新在顶)`;
+      } else {
+        filtered.sort((a, b) => (a.isoTime || a.lastActivity || a.time || '').localeCompare(b.isoTime || b.lastActivity || b.time || ''));
+        el.recordCounter.textContent = `共 ${filtered.length} 条记录 (按时间正序 - 最新在底)`;
+      }
+    }
+
+    if (filtered.length === 0) {
+      el.ledgerContainer.innerHTML = `<div class="empty-state">🔍 未找到匹配的记录</div>`;
+      return;
+    }
+
+    const model = getActiveModel();
+    let rowsHtml = '';
+    filtered.forEach((r, idx) => {
+      const rCost = calcCost(model, r.inputTokens, r.cacheTokens, r.outputTokens);
+      rowsHtml += `
+        <tr>
+          <td class="col-rank">${idx + 1}</td>
+          <td class="col-time">${r.time || r.date || '--'}</td>
+          <td class="col-tokens">${formatTokens(r.totalTokens)}</td>
+          <td class="col-input">${formatTokens(r.inputTokens)}</td>
+          <td class="col-output">${formatTokens(r.outputTokens)}</td>
+          <td class="col-cache">${formatTokens(r.cacheTokens)}</td>
+          <td class="col-hitrate">${calcHitRateStr(r.cacheTokens, r.inputTokens)}</td>
+          <td class="col-cost">${formatLedgerCost(model, rCost)}</td>
+          <td class="col-title">
+            <div class="title-cell">
+              <span class="title-text" title="${escapeHtml(r.title)}">${escapeHtml(r.title)}</span>
+              ${r.sessionId ? `<button class="copy-id-btn" data-id="${r.sessionId}" title="复制 Session ID">ID</button>` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+    el.ledgerContainer.innerHTML = `
+      <div class="session-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="col-rank">序号</th>
+              <th class="col-time">最近访问</th>
+              <th class="col-tokens">总Token</th>
+              <th class="col-input">Input</th>
+              <th class="col-output">Output</th>
+              <th class="col-cache">Cache</th>
+              <th class="col-hitrate">Hitrate</th>
+              <th class="col-cost">等效费用 (CNY ¥)</th>
+              <th class="col-title">会话标题</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+
+    bindCopyButtons();
+  }
+
+  function renderGroupedAccordion(weeks, query) {
+    if (!weeks || weeks.length === 0) {
+      el.ledgerContainer.innerHTML = `<div class="empty-state">暂无活动会话记录</div>`;
+      el.recordCounter.textContent = `0 条记录`;
+      return;
+    }
+
+    let totalMatched = 0;
+    let weeksHtml = '';
+    const model = getActiveModel();
+    const weeksToRender = state.timeSortOrder === 'desc' ? [...weeks].reverse() : [...weeks];
+
+    weeksToRender.forEach(w => {
+      let daysHtml = '';
+      let weekHasMatch = false;
+
+      const daysToRender = state.timeSortOrder === 'desc' ? [...w.days].reverse() : [...w.days];
+
+      daysToRender.forEach(d => {
+        const filteredRecords = query
+          ? d.records.filter(r => (r.title && r.title.toLowerCase().includes(query)) || (r.sessionId && r.sessionId.toLowerCase().includes(query)) || d.date.includes(query))
+          : d.records;
+
+        if (filteredRecords.length === 0 && query) {
+          return;
+        }
+
+        weekHasMatch = true;
+        totalMatched += filteredRecords.length;
+
+        // 当日会话记录：若为倒序模式，最新会话显示在当日小表最顶部
+        const recordsToRender = state.timeSortOrder === 'desc' ? [...filteredRecords].reverse() : [...filteredRecords];
+
+        let tableRows = '';
+        recordsToRender.forEach(r => {
+          const rCost = calcCost(model, r.inputTokens, r.cacheTokens, r.outputTokens);
+          tableRows += `
+            <tr>
+              <td class="col-rank">${r.index}</td>
+              <td class="col-time">${r.time}</td>
+              <td class="col-tokens">${formatTokens(r.totalTokens)}</td>
+              <td class="col-input">${formatTokens(r.inputTokens)}</td>
+              <td class="col-output">${formatTokens(r.outputTokens)}</td>
+              <td class="col-cache">${formatTokens(r.cacheTokens)}</td>
+              <td class="col-hitrate">${calcHitRateStr(r.cacheTokens, r.inputTokens)}</td>
+              <td class="col-cost">${formatLedgerCost(model, rCost)}</td>
+              <td class="col-title">
+                <div class="title-cell">
+                  <span class="title-text" title="${escapeHtml(r.title)}">${escapeHtml(r.title)}</span>
+                  ${r.sessionId ? `<button class="copy-id-btn" data-id="${r.sessionId}" title="复制 Session ID">ID</button>` : ''}
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+
+        const dayShort = d.date.length >= 10 ? d.date.slice(5) : d.date;
+        const dCost = calcCost(model, d.inputTokens, d.cacheTokens, d.outputTokens);
+        daysHtml += `
+          <div class="day-block">
+            <div class="day-header" onclick="this.parentElement.classList.toggle('collapsed')">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="accordion-chevron">▼</span>
+                <strong>${dayShort} (${d.weekday}) 小计</strong>
+                <span style="font-size:0.75rem; color:var(--text-muted);">当日 ${filteredRecords.length} 笔会话</span>
+              </div>
+              <div class="day-stats">
+                <span>总: <strong style="color:var(--accent-blue);">${formatTokens(d.totalTokens)}</strong></span>
+                <span>费用: <strong style="color:var(--accent-green);">${formatInlineCost(model, dCost)}</strong></span>
+              </div>
+            </div>
+            <div class="day-table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="col-rank">序号</th>
+                    <th class="col-time">访问时间</th>
+                    <th class="col-tokens">总Token</th>
+                    <th class="col-input">Input</th>
+                    <th class="col-output">Output</th>
+                    <th class="col-cache">Cache</th>
+                    <th class="col-hitrate">Hitrate</th>
+                    <th class="col-cost">等效费用 (CNY ¥)</th>
+                    <th class="col-title">会话标题</th>
+                  </tr>
+                </thead>
+                <tbody>${tableRows}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+
+      if (weekHasMatch) {
+        const wCost = calcCost(model, w.inputTokens, w.cacheTokens, w.outputTokens);
+        weeksHtml += `
+          <div class="week-card">
+            <div class="week-header" onclick="this.parentElement.classList.toggle('collapsed')">
+              <div class="week-title-left">
+                <span class="accordion-chevron">▼</span>
+                <span>${w.weekKey} 小计</span>
+                <span class="badge badge-subtle">${w.count} 笔会话</span>
+              </div>
+              <div class="week-subtotal-stats">
+                <span>Token: <strong class="stat-token-badge">${formatTokens(w.totalTokens)}</strong></span>
+                <span>费用: <strong class="stat-cost-badge">${formatInlineCost(model, wCost)}</strong></span>
+              </div>
+            </div>
+            <div class="week-body">${daysHtml}</div>
+          </div>
+        `;
+      }
+    });
+
+    el.recordCounter.textContent = `共 ${totalMatched} 笔匹配记录`;
+
+    if (!weeksHtml) {
+      el.ledgerContainer.innerHTML = `<div class="empty-state">🔍 未找到与 "${query}" 匹配的会话记录</div>`;
+      return;
+    }
+
+    el.ledgerContainer.innerHTML = weeksHtml;
+    bindCopyButtons();
+  }
+
+  function bindCopyButtons() {
+    document.querySelectorAll('.copy-id-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = btn.getAttribute('data-id');
+        copyToClipboard(sid, 'Session ID');
+      });
+    });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // 启动应用
+  document.addEventListener('DOMContentLoaded', init);
+})();

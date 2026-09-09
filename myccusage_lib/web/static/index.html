@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>myccusage Dashboard - 多 Agent 会话用量与等效计费</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- 引入轻量 Chart.js (若离线则自动回退为原生自适应渲染) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body class="dark-theme">
+  <div id="app">
+    <!-- 顶部导航栏 -->
+    <header class="navbar">
+      <div class="nav-left">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">myccusage</span>
+          <span class="badge badge-subtle">Dashboard</span>
+        </div>
+        <div class="live-status" id="liveStatus">
+          <span class="pulse-dot"></span>
+          <span class="status-label">本地引擎就绪</span>
+        </div>
+      </div>
+
+      <div class="nav-center">
+        <!-- Agent 药丸选择器 -->
+        <div class="segmented-control" id="agentSelector">
+          <button class="segment-btn active" data-agent="agy">Google Antigravity</button>
+          <button class="segment-btn" data-agent="claude">Claude Code</button>
+          <button class="segment-btn" data-agent="hermes">Hermes</button>
+          <button class="segment-btn" data-agent="codex">Codex</button>
+          <button class="segment-btn" data-agent="grok">Grok</button>
+          <button class="segment-btn" data-agent="pi">Pi</button>
+          <button class="segment-btn" data-agent="opencode">OpenCode</button>
+          <button class="segment-btn segment-all" data-agent="all">🌟 全景对比</button>
+        </div>
+      </div>
+
+      <div class="nav-right">
+        <button class="btn btn-icon" id="btnRefresh" title="清除今日缓存并刷新数据">
+          <span class="icon">🔄</span>
+          <span class="btn-text">刷新</span>
+        </button>
+        <button class="btn btn-icon" id="btnThemeToggle" title="切换深色/浅色主题">
+          <span class="icon" id="themeIcon">🌙</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 主体容器 -->
+    <main class="main-container">
+      <!-- 视图与排序控制工具条 -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="tab-group" id="modeSelector">
+            <button class="tab-btn active" data-mode="daily">
+              <span class="tab-icon">📅</span> 每日会话账本 (Daily)
+            </button>
+            <button class="tab-btn" data-mode="session">
+              <span class="tab-icon">🏆</span> 项目全生命周期总览 (Session)
+            </button>
+          </div>
+          <!-- 计价模型下拉选择器 (支持管理模型、智能导入与记忆选择) -->
+          <div class="pricing-dropdown-container" id="pricingDropdownContainer">
+            <button class="pricing-selector-trigger" id="pricingTrigger" type="button" title="点击切换等效计价模型">
+              <span class="pricing-trigger-icon">🏷️</span>
+              <span class="pricing-selected-name" id="selectedPricingName">DeepSeek-V4-Flash (高峰期)</span>
+              <span class="dropdown-chevron">▾</span>
+            </button>
+            <div class="pricing-dropdown-menu" id="pricingMenu">
+              <div class="pricing-menu-topbar">
+                <span class="pricing-menu-title">计费模型</span>
+                <button class="btn-manage-models" id="btnOpenModelManager" type="button" title="管理/导入计费模型">
+                  <span class="icon-gear">⚙️</span>
+                  <span>管理模型</span>
+                </button>
+              </div>
+              <div class="pricing-options-list" id="pricingOptionsList">
+                <!-- 由 JavaScript 动态渲染模型列表及悬浮说明 -->
+              </div>
+              <!-- 右侧展开计价价格悬浮卡片 (脱离滚动区域，彻底避免 overflow-y 导致的横向截断) -->
+              <div class="pricing-floating-popover" id="pricingFloatingPopover"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar-right">
+          <div class="sort-group">
+            <span class="sort-label">排序方式:</span>
+            <button class="sort-btn active" id="btnSortTime" data-sort="time">时间倒序 (最新在顶)</button>
+            <button class="sort-btn" id="btnSortTokens" data-sort="tokens">Token 降序排行</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPI 核心指标卡片 -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">总 Token 消耗</span>
+            <span class="kpi-badge badge-blue">全周期</span>
+          </div>
+          <div class="kpi-value" id="valTotalTokens">--</div>
+          <div class="kpi-sub" id="subTotalTokens">Input: -- | Cache: -- | Output: --</div>
+        </div>
+
+        <div class="kpi-card highlight-card">
+          <div class="kpi-header">
+            <span class="kpi-title">DeepSeek-V4 等效费用</span>
+            <span class="kpi-badge badge-green">高峰期折算</span>
+          </div>
+          <div class="kpi-value cny-color" id="valTotalCost">--</div>
+          <div class="kpi-sub" id="valTotalCostUsd">约 $-- USD</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">KV Cache 命中率</span>
+            <span class="kpi-badge badge-purple">Prompt 节省</span>
+          </div>
+          <div class="kpi-value" id="valCacheHitRate">--%</div>
+          <div class="kpi-progress">
+            <div class="kpi-progress-bar" id="barCacheHit" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">活跃周期</span>
+            <span class="kpi-badge badge-orange" id="badgeActivePeriod">统计</span>
+          </div>
+          <div class="kpi-value" id="valActiveDays">--</div>
+          <div class="kpi-sub" id="subActiveDays">日均用量: --</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">记录笔数</span>
+            <span class="kpi-badge badge-cyan" id="badgeRecordsType">会话</span>
+          </div>
+          <div class="kpi-value" id="valRecordsCount">--</div>
+          <div class="kpi-sub" id="subRecordsDetail">原生标题已自动映射</div>
+        </div>
+      </section>
+
+      <!-- 可视化图表区 -->
+      <section class="charts-grid" id="chartsSection">
+        <div class="chart-card chart-card-trend">
+          <div class="chart-card-header">
+            <div class="chart-title">
+              <span class="chart-icon">📈</span>
+              <span id="trendChartTitle">每日 Token 消耗趋势与费用走向</span>
+            </div>
+            <div class="chart-legend">
+              <span class="legend-dot dot-output"></span><span>Output (¥9/M)</span>
+              <span class="legend-dot dot-input"></span><span>Input 未命中 (¥3/M)</span>
+              <span class="legend-dot dot-cache"></span><span>Cache 命中 (¥0.1/M)</span>
+            </div>
+          </div>
+          <div class="chart-body">
+            <canvas id="trendChartCanvas"></canvas>
+            <div id="trendChartFallback" class="chart-fallback" style="display: none;"></div>
+          </div>
+        </div>
+
+        <div class="chart-card chart-card-donut">
+          <div class="chart-card-header">
+            <div class="chart-title">
+              <span class="chart-icon">🍩</span>
+              <span>Token 构成与命中分析</span>
+            </div>
+          </div>
+          <div class="chart-body donut-body">
+            <div class="donut-canvas-wrap">
+              <canvas id="donutChartCanvas"></canvas>
+              <div id="donutChartFallback" class="chart-fallback" style="display: none;"></div>
+            </div>
+            <div class="donut-stats" id="donutStats">
+              <!-- 动态填入比例 -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 全局多 Agent 对比视图容器 (仅在选择全景对比时呈现) -->
+      <section class="all-agents-section" id="allAgentsSection" style="display: none;">
+        <div class="section-title">
+          <span>🌟 全 AI 编程 Agent 用量与支出分布</span>
+        </div>
+        <div class="agents-overview-grid" id="agentsOverviewGrid">
+          <!-- 动态渲染 7 大 Agent 卡片 -->
+        </div>
+      </section>
+
+      <!-- 搜索与表格展示区 -->
+      <section class="table-section" id="tableSection">
+        <div class="table-header-bar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="searchInput" placeholder="实时过滤标题、Session ID、日期..." autocomplete="off" />
+            <button class="clear-search-btn" id="btnClearSearch" style="display: none;">✕</button>
+          </div>
+          <div class="table-actions">
+            <button class="btn btn-sm" id="btnToggleAllAccordion">展开全部</button>
+            <span class="record-counter" id="recordCounter">共 -- 条记录</span>
+          </div>
+        </div>
+
+        <!-- 数据容器 (支持按周、按日折叠) -->
+        <div class="ledger-container" id="ledgerContainer">
+          <!-- 动态注入表格或周/日卡片 -->
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>正在拉取并解析本地会话数据...</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部状态栏 -->
+    <footer class="footer">
+      <div class="footer-left">
+        <span>myccusage v1.1.0</span>
+        <span class="divider">|</span>
+        <span>本地缓存源: <code>~/.cache/myccusage/</code></span>
+      </div>
+      <div class="footer-right">
+        <span>遵循 Token 守恒 (Total = Input + Cache + Output)</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 二级弹窗：计费模型管理 -->
+  <div class="modal-backdrop" id="modelManagerModal" style="display: none;">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3 class="modal-title">⚙️ 计费模型管理</h3>
+          <span class="modal-subtitle">管理预设与导入自定义大模型计费规则</span>
+        </div>
+        <button class="modal-close-btn" id="btnCloseManagerModal" type="button" title="关闭窗口">✕</button>
+      </div>
+      <div class="modal-body modal-split-layout">
+        <!-- 左侧：模型列表与新增按钮 -->
+        <div class="model-manager-sidebar">
+          <div class="sidebar-header">
+            <span>已配置模型</span>
+            <span class="badge badge-subtle" id="modelCountBadge">1 款</span>
+          </div>
+          <div class="model-list-scroll" id="manageModelList">
+            <!-- 动态生成 -->
+          </div>
+          <div class="sidebar-footer">
+            <button class="btn btn-primary btn-block" id="btnOpenAddModelModal" type="button">
+              <span>+ 智能导入 / 新增模型</span>
+            </button>
+            <button class="btn-link-sm" id="btnResetDefaultModels" type="button" style="margin-top:6px; font-size:0.72rem; color:var(--text-muted); width:100%; text-align:center; cursor:pointer;" title="重置并恢复被删除或修改的系统默认模型">
+              🔄 恢复系统预设模型
+            </button>
+          </div>
+        </div>
+        <!-- 右侧：当前选中模型详情与编辑 -->
+        <div class="model-manager-detail" id="manageModelDetail">
+          <div class="detail-header">
+            <div class="detail-title-wrap">
+              <h4 class="detail-model-name" id="detailModelTitle">DeepSeek-V4-Flash</h4>
+              <span class="badge badge-blue" id="detailModelBadge">预设</span>
+            </div>
+            <div class="detail-header-actions">
+              <button class="btn btn-sm btn-outline-primary" id="btnApplySelectedModel" type="button">
+                设为当前使用
+              </button>
+            </div>
+          </div>
+          <form class="model-edit-form" id="modelEditForm" onsubmit="return false;">
+            <div class="form-row">
+              <div class="form-group flex-2">
+                <label>模型显示名称 <span class="required">*</span></label>
+                <input type="text" id="editModelName" class="form-control" placeholder="例如: Claude 3.5 Sonnet" required />
+              </div>
+              <div class="form-group flex-1">
+                <label>计价货币 <span class="required">*</span></label>
+                <select id="editModelCurrency" class="form-control">
+                  <option value="CNY">人民币 (CNY ¥)</option>
+                  <option value="USD">美元 (USD $)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>输入未命中 (/1M) <span class="required">*</span></label>
+                <div class="input-with-unit">
+                  <span class="input-currency-symbol" id="symbolInputRate">¥</span>
+                  <input type="number" step="0.001" min="0" id="editModelInput" class="form-control" placeholder="3.00" required />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>KV 缓存命中 (/1M) <span class="required">*</span></label>
+                <div class="input-with-unit">
+                  <span class="input-currency-symbol" id="symbolCacheRate">¥</span>
+                  <input type="number" step="0.001" min="0" id="editModelCache" class="form-control" placeholder="0.10" required />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>输出+思考 (/1M) <span class="required">*</span></label>
+                <div class="input-with-unit">
+                  <span class="input-currency-symbol" id="symbolOutputRate">¥</span>
+                  <input type="number" step="0.001" min="0" id="editModelOutput" class="form-control" placeholder="9.00" required />
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>说明与备注</label>
+              <input type="text" id="editModelNote" class="form-control" placeholder="例如: 官方标准价格 (输入 $3/M | 缓存 $0.3/M | 输出 $15/M)" />
+            </div>
+            <div class="model-form-actions">
+              <button class="btn btn-primary" id="btnSaveModelEdit" type="button">保存修改</button>
+              <button class="btn btn-danger-outline" id="btnDeleteModel" type="button">删除此模型</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 三级弹窗：智能导入 / 新增模型 -->
+  <div class="modal-backdrop" id="addModelModal" style="display: none;">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3 class="modal-title">🤖 智能导入计费模型</h3>
+          <span class="modal-subtitle">复制提示词发给 AI 生成标准格式，或直接粘贴配置文本/JSON</span>
+        </div>
+        <button class="modal-close-btn" id="btnCloseAddModal" type="button" title="关闭窗口">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- AI 提示词复制卡片 -->
+        <div class="ai-prompt-card">
+          <div class="prompt-header">
+            <div class="prompt-header-left">
+              <span class="prompt-badge">AI Native</span>
+              <span class="prompt-tip">让大模型为您直接整理标准配置格式</span>
+            </div>
+            <button class="btn btn-sm btn-primary" id="btnCopyAiPrompt" type="button">
+              📋 一键复制提示词
+            </button>
+          </div>
+          <pre class="prompt-code-box" id="aiPromptCodeBox">请帮我把以下 AI 模型的官方价格整理为标准计费配置格式（只输出代码块）：
+
+```pricing
+name: 模型显示名称 (例如: Claude 3.5 Sonnet)
+currency: CNY 或 USD (默认 CNY)
+input: 输入未命中价格 (每 1M Tokens 价格，纯数字，如 3.0 或 0.5)
+cache: 缓存命中价格 (每 1M Tokens 价格，纯数字，如 0.1 或 0.05)
+output: 输出价格 (每 1M Tokens 价格，纯数字，如 9.0 或 15.0)
+note: 简要说明或适用场景 (可选)
+```
+
+需要整理的模型信息如下：
+[请在这里粘贴您的模型名称或官网价格介绍文本]</pre>
+        </div>
+
+        <!-- 粘贴配置输入框 -->
+        <div class="import-input-group">
+          <div class="import-input-label-row">
+            <label for="importConfigText">粘贴配置文本或大模型输出结果:</label>
+            <button class="btn-link-sm" id="btnLoadExample" type="button">填入示例数据</button>
+          </div>
+          <textarea id="importConfigText" class="form-control code-textarea" rows="6" placeholder="在此粘贴，如：
+name: Claude 3.5 Sonnet
+currency: USD
+input: 3.0
+cache: 0.3
+output: 15.0
+note: 官方标准计费 (输入 $3/M | 缓存 $0.3/M | 输出 $15/M)"></textarea>
+        </div>
+
+        <!-- 实时解析状态与预览区 -->
+        <div class="parse-preview-container" id="importPreviewContainer">
+          <div class="parse-status-bar" id="parseStatusBar">
+            <span class="status-indicator">⚪ 请输入或粘贴模型配置文本</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnCancelAddModal" type="button">取消</button>
+        <button class="btn btn-primary" id="btnConfirmImportModel" type="button" disabled>确认导入并应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 浮动 Toast 提示 -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
