@@ -469,5 +469,9 @@ def main(raw_args=None):
             data = get_daily_data(agent_type, sort_by_tokens=sort_by_tokens)
             render_daily_table(data)
     except Exception as e:
-        print(f"错误: {e}", file=sys.stderr)
+        msg = str(e)
+        if "未检测到底层依赖" in msg:
+            print(f"\n{msg}\n", file=sys.stderr)
+        else:
+            print(f"错误: {msg}", file=sys.stderr)
         sys.exit(1)

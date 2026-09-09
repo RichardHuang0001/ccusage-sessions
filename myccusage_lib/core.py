@@ -14,6 +14,7 @@ import glob
 import sys
 import sqlite3
 import os
+import shutil
 from datetime import datetime, timezone
 from collections import OrderedDict
 
@@ -374,8 +375,21 @@ def resolve_title(sid, titles):
 
 # ==================== 底层切片与缓存引擎 ====================
 
+def check_ccusage_installed():
+    """检查系统是否安装了底层 ccusage CLI 工具"""
+    if not shutil.which("ccusage"):
+        raise RuntimeError(
+            "未检测到底层依赖 'ccusage' 命令行工具！\n\n"
+            "myccusage 依赖开源的 ccusage CLI (Node.js) 获取底层会话切片。\n"
+            "请在终端执行以下命令进行全局安装（二选一）：\n"
+            "  ▶ 使用 npm 安装：  npm install -g ccusage\n"
+            "  ▶ 或使用 bun 安装： bun add -g ccusage\n\n"
+            "安装完成后重新运行当前命令即可。"
+        )
+
 def fetch_single_day_sessions(ccusage_subcmd, date_str, times_override):
     """获取指定日期的精确切片会话消耗（不含历史前日累积）"""
+    check_ccusage_installed()
     cmd = ["ccusage", ccusage_subcmd, "session", "-s", date_str, "-u", date_str, "--json"]
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
@@ -395,6 +409,7 @@ def get_daily_data(agent_type, sort_by_tokens=False, force_refresh=False):
     """
     获取结构化的每日会话账本数据 (返回纯 dict/list，无终端控制台输出)
     """
+    check_ccusage_installed()
     if agent_type not in SUPPORTED_AGENTS:
         raise ValueError(f"未知 Agent 类型: {agent_type}")
 
@@ -608,6 +623,7 @@ def get_session_data(agent_type, sort_by_tokens=False, clean_args=None):
     """
     获取结构化的项目全生命周期总览数据 (返回纯 dict/list，无终端控制台输出)
     """
+    check_ccusage_installed()
     if agent_type not in SUPPORTED_AGENTS:
         raise ValueError(f"未知 Agent 类型: {agent_type}")
 
