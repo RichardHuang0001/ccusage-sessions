@@ -15,27 +15,27 @@
 
   // 系统预设计价模型库（已通过官方最新文档校验）
   const DEFAULT_PRICING_MODELS = {
-    'deepseek-v4-flash': {
-      id: 'deepseek-v4-flash',
-      name: 'DeepSeek-V4-Flash (高峰期)',
+    'deepseek-v4.1-flash': {
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek-V4.1-Flash (高峰期)',
       badge: '官方高峰期',
       currency: 'CNY',
-      inputRate: 3.0,
-      cacheRate: 0.1,
-      outputRate: 9.0,
+      inputRate: 2.0,
+      cacheRate: 0.04,
+      outputRate: 8.0,
       isBuiltin: true,
-      note: '官方高峰期计费标准 (输入未命中 ¥3/M | 缓存命中 ¥0.1/M | 输出 ¥9/M)'
+      note: '官方高峰期计费标准 (输入未命中 ¥2/M | 缓存命中 ¥0.04/M | 输出 ¥8/M)'
     },
-    'deepseek-v4-flash-offpeak': {
-      id: 'deepseek-v4-flash-offpeak',
-      name: 'DeepSeek-V4-Flash (低谷期)',
+    'deepseek-v4.1-flash-offpeak': {
+      id: 'deepseek-v4.1-flash-offpeak',
+      name: 'DeepSeek-V4.1-Flash (低谷期)',
       badge: '官方低谷期',
       currency: 'CNY',
-      inputRate: 1.5,
-      cacheRate: 0.05,
-      outputRate: 4.5,
+      inputRate: 1.0,
+      cacheRate: 0.02,
+      outputRate: 4.0,
       isBuiltin: true,
-      note: '官方空闲低谷期计费标准 (输入未命中 ¥1.5/M | 缓存命中 ¥0.05/M | 输出 ¥4.5/M)'
+      note: '官方空闲低谷期计费标准 (输入未命中 ¥1/M | 缓存命中 ¥0.02/M | 输出 ¥4/M)'
     },
     'glm-5.3-flash': {
       id: 'glm-5.3-flash',
@@ -182,7 +182,7 @@
     const all = getAllPricingModels();
     if (all[state.pricingModel]) return all[state.pricingModel];
     const firstKey = Object.keys(all)[0];
-    return firstKey ? all[firstKey] : DEFAULT_PRICING_MODELS['deepseek-v4-flash'];
+    return firstKey ? all[firstKey] : DEFAULT_PRICING_MODELS['deepseek-v4.1-flash'];
   }
 
   // 全局状态
@@ -191,8 +191,8 @@
     mode: 'daily',
     sort: 'time',
     timeSortOrder: 'desc', // Web 端默认时间倒序 (最新在最顶上)
-    pricingModel: 'deepseek-v4-flash',
-    managingModelId: 'deepseek-v4-flash',
+    pricingModel: 'deepseek-v4.1-flash',
+    managingModelId: 'deepseek-v4.1-flash',
     searchQuery: '',
     data: null,
     allAgentsData: null,
@@ -412,7 +412,7 @@
     if (savedPricing && allModels[savedPricing]) {
       setPricingModel(savedPricing, false);
     } else {
-      setPricingModel('deepseek-v4-flash', false);
+      setPricingModel('deepseek-v4.1-flash', false);
     }
 
     // 渲染下拉菜单
@@ -520,7 +520,7 @@
   function setPricingModel(modelId, notify = false) {
     const allModels = getAllPricingModels();
     if (!allModels[modelId]) {
-      modelId = 'deepseek-v4-flash';
+      modelId = 'deepseek-v4.1-flash';
     }
     state.pricingModel = modelId;
     localStorage.setItem('myccusage_pricing_model', modelId);
@@ -599,7 +599,7 @@
 
   function renderManagerDetail(modelId) {
     const all = getAllPricingModels();
-    const m = all[modelId] || Object.values(all)[0] || DEFAULT_PRICING_MODELS['deepseek-v4-flash'];
+    const m = all[modelId] || Object.values(all)[0] || DEFAULT_PRICING_MODELS['deepseek-v4.1-flash'];
     state.managingModelId = m.id;
 
     el.manageModelList.querySelectorAll('.model-list-item').forEach(it => {

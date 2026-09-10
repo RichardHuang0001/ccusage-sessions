@@ -134,7 +134,7 @@ def render_daily_table(data):
     print("=" * total_table_width)
     print(f"  {display_name} 每日会话账本 (共 {data['activeDaysCount']} 个活动日, {data['totalRecordsCount']} 笔日度会话)")
     print("  * 模式：[-d / --daily 默认] 不混淆前日用量，精准分列“此日、此 Session”的实际发生额")
-    print("  * 计价：DeepSeek-V4-Flash 高峰期 (未命中 ¥3/M | 缓存命中 ¥0.1/M | 输出 ¥9/M)")
+    print("  * 计价：DeepSeek-V4.1-Flash 高峰期 (未命中 ¥2/M | 缓存命中 ¥0.04/M | 输出 ¥8/M)")
     print("=" * total_table_width)
 
     header = (
@@ -287,7 +287,7 @@ def render_session_table(data):
     print("=" * total_table_width)
     print(f"  {display_name} 项目/会话总览 (共 {len(sessions)} 个 Session - 全生命周期累计消耗)")
     print("  * 模式：[-s / --session] 专注每个任务/Project 的全生命周期总耗费（按最新访问时间排序）")
-    print("  * 计价：DeepSeek-V4-Flash 高峰期 (未命中 ¥3/M | 缓存命中 ¥0.1/M | 输出 ¥9/M)")
+    print("  * 计价：DeepSeek-V4.1-Flash 高峰期 (未命中 ¥2/M | 缓存命中 ¥0.04/M | 输出 ¥8/M)")
     print("=" * total_table_width)
 
     header = (
@@ -369,7 +369,7 @@ def render_session_table(data):
 
 def print_usage_hint():
     print("=" * 78)
-    print("  myccusage: 多 Agent 会话用量与 DeepSeek-V4-Flash 等效计费工具")
+    print("  myccusage: 多 Agent 会话用量与 DeepSeek-V4.1-Flash 等效计费工具")
     print("=" * 78)
     print("用法:")
     print("  myccusage <agent参数> [模式选项] [排序选项]")

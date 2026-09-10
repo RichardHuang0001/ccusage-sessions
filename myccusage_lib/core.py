@@ -2,7 +2,7 @@
 myccusage_lib.core:
 核心数据与计算内核：
 - 7 大 Agent 原生会话标题与时间元数据解析
-- DeepSeek-V4-Flash 高峰期等效计价模型
+- DeepSeek-V4.1-Flash 高峰期等效计价模型
 - ~/.cache/myccusage 智能切片与两级缓存
 - 纯结构化日账本 (Daily) 与项目总览 (Session) 聚合计算
 """
@@ -32,12 +32,12 @@ SUPPORTED_AGENTS = {
 
 def calc_deepseek_cost(input_tokens, cache_read_tokens, total_output_tokens):
     """
-    DeepSeek-V4-Flash 官方高峰期定价算法（自 2026 年 8 月生效）：
-    - 输入（未命中/Cache Miss）：¥3.00 / 1M Tokens
-    - 输入（命中缓存/Cache Hit）：¥0.10 / 1M Tokens
-    - 输出（含思维链/Output+Reasoning）：¥9.00 / 1M Tokens
+    DeepSeek-V4.1-Flash 官方高峰期定价算法（自 2026 年 9 月 10 日生效）：
+    - 输入（未命中/Cache Miss）：¥2.00 / 1M Tokens
+    - 输入（命中缓存/Cache Hit）：¥0.04 / 1M Tokens
+    - 输出（含思维链/Output+Reasoning）：¥8.00 / 1M Tokens
     """
-    cny = (input_tokens * 3.0 + cache_read_tokens * 0.10 + total_output_tokens * 9.0) / 1_000_000
+    cny = (input_tokens * 2.0 + cache_read_tokens * 0.04 + total_output_tokens * 8.0) / 1_000_000
     return cny
 
 def format_time(iso_str):

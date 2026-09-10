@@ -1,6 +1,6 @@
 # myccusage
 
-`myccusage` 是一个专为开发者打造的多 AI 编程 Agent（Antigravity、Claude Code、Hermes、Codex、Grok、Pi、OpenCode）本地会话用量分析与 **DeepSeek-V4-Flash 高峰期等效计费** 命令行工具。
+`myccusage` 是一个专为开发者打造的多 AI 编程 Agent（Antigravity、Claude Code、Hermes、Codex、Grok、Pi、OpenCode）本地会话用量分析与 **DeepSeek-V4.1-Flash 高峰期等效计费** 命令行工具。
 
 支持极速双模分流（默认每日账本模式 vs 项目总览模式），完美解决多日跨度会话导致的日消耗漂移与前日用量被“窃取”问题。
 
@@ -21,11 +21,11 @@
 - 默认采用**时间正序（最新在最底部）**，打开终端查看即直接落在最新日期与最新会话上，省去每次手动向下滑动的繁琐操作。
 - 每日小计、每周小计自然呈现在对应周期下方。
 
-### 3. 严格的 Token 守恒与 DeepSeek-V4-Flash 等效计费
+### 3. 严格的 Token 守恒与 DeepSeek-V4.1-Flash 等效计费
 - 严格遵循：`总 Token = Input + Cache + Output`
-  - **Input（输入未命中）**：¥3.00 / 1M Tokens
-  - **Cache（KV 缓存命中）**：¥0.10 / 1M Tokens
-  - **Output（输出 + 思维链/Reasoning）**：¥9.00 / 1M Tokens
+  - **Input（输入未命中）**：¥2.00 / 1M Tokens
+  - **Cache（KV 缓存命中）**：¥0.04 / 1M Tokens
+  - **Output（输出 + 思维链/Reasoning）**：¥8.00 / 1M Tokens
 - 自动转换等效人民币（¥）与等效美元（$）。
 
 ### 4. 深度原生会话标题与元数据解析
@@ -82,7 +82,7 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 4. 计费与聚合内核 (Accounting & Aggregation Core)                         │
 │    - 约束校验：Total = Input + Cache + Output                           │
-│    - DeepSeek-V4-Flash 官方高峰期定价模型 (未命中¥3/M, 命中¥0.1/M, 输出¥9/M)│
+│    - DeepSeek-V4.1-Flash 官方高峰期定价模型 (未命中¥2/M, 命中¥0.04/M, 输出¥8/M)│
 │    - 分层聚合：会话明细 -> 日计 (含星期指示) -> 周计 (ISO-W) -> 全周期汇总    │
 └──────────────────────────────────────┬──────────────────────────────────┘
                                        │
@@ -127,7 +127,7 @@ sequenceDiagram
         end
     end
 
-    Core->>Core: 组装每笔日度明细，计算 DeepSeek-V4 等效价格，计算日小计与周小计
+    Core->>Core: 组装每笔日度明细，计算 DeepSeek-V4.1 等效价格，计算日小计与周小计
     Core->>Renderer: 注入会话标题映射，按时间正序排列 (最新在最底)
     Renderer->>User: 终端输出格式化表格，光标直接落在最新记录与汇总
 ```
