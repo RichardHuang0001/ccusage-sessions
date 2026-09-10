@@ -1,56 +1,120 @@
 # myccusage
 
-`myccusage` 是一个专为开发者打造的多 AI 编程 Agent（Antigravity、Claude Code、Hermes、Codex、Grok、Pi、OpenCode）本地会话用量分析与 **DeepSeek-V4.1-Flash 高峰期等效计费** 命令行工具。
+[![PyPI Version](https://img.shields.io/pypi/v/myccusage.svg)](https://pypi.org/project/myccusage/)
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-支持极速双模分流（默认每日账本模式 vs 项目总览模式），完美解决多日跨度会话导致的日消耗漂移与前日用量被“窃取”问题。
+> **专为开发者打造的多 AI 编程 Agent 本地会话用量分析与 DeepSeek-V4.1-Flash 高峰期等效计费工具。**  
+> 支持 7 大主流编程智能体：**Google Antigravity**、**Claude Code**、**Hermes Agent**、**OpenAI Codex**、**Grok**、**Pi Agent**、**OpenCode**。
 
 ---
 
 ## 🌟 核心特性
 
-### 1. 方案 A：双模分流模式 (Dual-Mode CLI)
-- **`-d` / `--daily` [默认模式]：每日会话账本模式**
-  - **核心设计**：“此日、此 Session”。如果一个会话跨越了昨天与今天，今天只统计**今天实际发生**的 Token 增量，昨天只保留昨天实际发生的净消耗。
-  - **防漂移日/周小计**：每日小计与每周小计严格对应真实发生额，绝不混淆前日用量。
-  - **极速秒开智能缓存 (`~/.cache/myccusage/`)**：历史已结账日自动落盘缓存，仅对“跨日活动日”与“今日”进行精确切片同步，7 个 Agent 均在 1~2 秒内秒级出表。
-- **`-s` / `--session`：项目全生命周期总览模式**
-  - **核心设计**：专注于每个 Project / Session 从创建到当前的总消耗，帮助你直观评估一个大型工程任务、代码重构项目的全生命周期总成本。
-  - 支持配合 `-t` / `--tokens` 找出消耗最大的“Token 吞吐大户”项目。
-
-### 2. 输出排序优化
-- 默认采用**时间正序（最新在最底部）**，打开终端查看即直接落在最新日期与最新会话上，省去每次手动向下滑动的繁琐操作。
-- 每日小计、每周小计自然呈现在对应周期下方。
-
-### 3. 严格的 Token 守恒与 DeepSeek-V4.1-Flash 等效计费
-- 严格遵循：`总 Token = Input + Cache + Output`
-  - **Input（输入未命中）**：¥2.00 / 1M Tokens
-  - **Cache（KV 缓存命中）**：¥0.04 / 1M Tokens
-  - **Output（输出 + 思维链/Reasoning）**：¥8.00 / 1M Tokens
-- 自动转换等效人民币（¥）与等效美元（$）。
-
-### 4. 深度原生会话标题与元数据解析
-全自动从底层数据源提取真实提问或项目标题，告别冷冰冰的 Session ID：
-- **Google Antigravity**：从 `agyhub_summaries_proto.pb` 二进制反序列化提炼，回退解析 `transcript.jsonl` 首行 prompt。
-- **Claude Code**：解析 `history.jsonl` 与各项目日志 `.claude/projects/*/*.jsonl`。
-- **Hermes Agent**：直接读取 `.hermes/state.db` SQLite 数据库会话标题与精确时间。
-- **OpenAI Codex**：解析 `.codex/session_index.jsonl` 与各 session rollout 记录。
-- **Grok**：读取 `.grok/sessions/session_search.sqlite` 与 `prompt_history.jsonl`。
-- **Pi Agent**：读取 `.pi/agent/sessions/*/*.jsonl` 第一轮消息 prompt。
-- **OpenCode**：连接 `.local/share/opencode/opencode.db` 提取会话主题。
-
-### 5. 现代化 Web 前端 Dashboard 仪表盘 (`--web` / `-w`)
-- **一键免构建秒级启动**：运行 `myccusage --web` 自动开启本地轻量服务并打开默认浏览器，零第三方 pip / npm 依赖。
-- **全 Agent 全景对比**：支持在一张看板上汇总 7 大 Agent 的总支出与用量分布，直观对比各大 AI 助手的使用频度。
-- **趋势与构成可视化**：内置每日堆叠趋势图（Output / Input Miss / Cache Hit）与费用走势双轴分析，以及 Token 占比环形图。
-- **客户端毫秒级检索**：即时模糊搜索标题与 Session ID，支持按周、按日树状层级折叠与一键复制 Session ID。
+- 🔀 **方案 A：双模分流架构**
+  - **每日账本模式 (`-d` / `--daily`，默认)**：严格按“此日、此 Session”切片统计，彻底解决跨日会话导致的日消耗漂移与前日用量被“窃取”问题，日小计与周小计精准可信。
+  - **项目总览模式 (`-s` / `--session`)**：专注统计每个 Project / Session 的全生命周期累计总消耗，清晰核算大型工程与重构项目的整体成本。
+- 🔍 **原生元数据深度提取**：告别冷冰冰的 UUID，直击底层数据源（Protobuf 二进制、SQLite 数据库、JSONL 日志）提取人类可读的真实会话标题与活跃时间。
+- 💰 **严格 Token 守恒与最新官方等效折算**：
+  - 默认遵循：`总 Token = Input + Cache + Output`。
+  - 对齐 **DeepSeek-V4.1-Flash 最新官方定价**（输入未命中 ¥2.00/M，缓存命中 ¥0.04/M，输出 ¥8.00/M），自动换算人民币（¥）与美元（$）。
+- ⚡ **毫秒级两级缓存 (`~/.cache/myccusage/`)**：已结账历史日自动落盘，仅对“今日”与活跃日进行增量切片同步，7 个 Agent 均在 1~2 秒内秒级出表。
+- 🖥️ **高颜值本地 Web 仪表盘 (`--web` / `-w`)**：无需构建，秒级启动。提供全 Agent 全景对比看板、趋势堆叠图、Token 环形构成图，支持计价模型动态切换与自定义导入管理。
 
 ---
 
-## 🏛️ 系统架构设计与调用链
+## 📦 安装指南
 
-`myccusage` 采用极轻量、高内聚的分层架构，无任何外部重型依赖，整体由 **CLI 参数路由层**、**双轨元数据提取引擎**、**数据切片与两级缓存层**、**Token 计价内核** 以及 **自适应终端渲染器** 组成。
+### 第一步：安装前置依赖开源项目 `ccusage`（必选）
 
-### 1. 系统架构分层 (Architecture Layers)
+`myccusage` 依赖底层开源工具 [ccusage](https://github.com/ryoppippi/ccusage) 获取各 Agent 的底层 Token 切片数据。请先在终端中通过 npm、bun 或 pnpm 完成全局安装：
+
+```bash
+# 使用 npm 全局安装
+npm install -g ccusage
+
+# 或使用 bun 全局安装
+bun add -g ccusage
+
+# 或使用 pnpm 全局安装
+pnpm add -g ccusage
+```
+
+安装完成后，可运行 `ccusage --version` 确认已正确安装并处于系统 PATH 中。
+
+---
+
+### 第二步：安装 `myccusage`
+
+#### 推荐方式：通过 pip 安装
+
+```bash
+pip install myccusage
+```
+
+#### 国内镜像加速安装
+
+若在国内网络环境下，推荐使用清华大学镜像源极速下载：
+
+```bash
+pip install -i https://pypi.tuna.tsinghua.edu.cn/simple myccusage
+```
+
+#### 源码安装（针对开发者）
+
+```bash
+git clone https://github.com/RichardHuang0001/ccusage-sessions.git
+cd ccusage-sessions
+chmod +x install.sh && ./install.sh
+```
+
+安装后将自动注册全局命令 `myccusage` 与 `ccusage-sessions`。
+
+---
+
+## 🚀 快速上手与常用命令
+
+### 1. 支持的 Agent 参数
+
+| Agent 名称 | 命令行参数 | 底层 CLI 命令 |
+| :--- | :--- | :--- |
+| **Google Antigravity** | `--agy`, `--antigravity` | `ccusage antigravity` |
+| **Claude Code** | `--claude` | `ccusage claude` |
+| **Hermes Agent** | `--hermes` | `ccusage hermes` |
+| **OpenAI Codex** | `--codex` | `ccusage codex` |
+| **Grok** | `--grok` | `ccusage grok` |
+| **Pi Agent** | `--pi` | `ccusage pi` |
+| **OpenCode** | `--opencode` | `ccusage opencode` |
+
+### 2. 常用操作示例
+
+```bash
+# 1. 查看 Google Antigravity 每日会话账本 (默认按时间正序，最新在最底，小计防漂移)
+myccusage --agy
+
+# 2. 查看 Claude Code 每日账本
+myccusage --claude
+
+# 3. 查看 Antigravity 项目全生命周期总览 (累计任务总消耗)
+myccusage --agy -s
+
+# 4. 找出消耗最大的“Token 吞吐大户”项目 (按 Token 用量降序)
+myccusage --agy -s -t
+
+# 5. 一键启动本地 Web 前端仪表盘并自动唤起浏览器 (默认端口 8488)
+myccusage --web
+
+# 6. 指定端口启动 Web 仪表盘
+myccusage --web -p 9000
+```
+
+---
+
+## 🏛️ 系统架构设计
+
+`myccusage` 采用高内聚、轻量级的模块化分层架构，零大型外部框架依赖：
+
+### 1. 架构分层 (Architecture Layers)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -84,210 +148,67 @@
 │    - 约束校验：Total = Input + Cache + Output                           │
 │    - DeepSeek-V4.1-Flash 官方高峰期定价模型 (未命中¥2/M, 命中¥0.04/M, 输出¥8/M)│
 │    - 分层聚合：会话明细 -> 日计 (含星期指示) -> 周计 (ISO-W) -> 全周期汇总    │
-└──────────────────────────────────────┬──────────────────────────────────┘
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│ 5. 终端动态排版与渲染器 (Terminal Responsive Formatter)                  │
-│    - East Asian Width 宽度计算（确保中英文字符在终端严格对齐）            │
-│    - 终端宽度动态感知与智能截断 (shutil.get_terminal_size)                 │
-│    - 视口友好渲染（最新会话直接沉底显示）                               │
-└─────────────────────────────────────────────────────────────────────────┘
+└───────────────────┬─────────────────────────────────┬───────────────────┘
+                    │                                 │
+                    ▼                                 ▼
+┌──────────────────────────────────────┐  ┌───────────────────────────────┐
+│ 5. 终端排版与渲染器                   │  │ 6. 本地 Web 仪表盘服务        │
+│    (Terminal Responsive Formatter)   │  │    (Zero-Dependency Web UI)   │
+│  - East Asian Width 字符对齐         │  │  - 原生 Python HTTP Server    │
+│  - 视口自适应表格与小计渲染           │  │  - 客户端动态重算与图表双轴   │
+└──────────────────────────────────────┘  └───────────────────────────────┘
 ```
 
-### 2. 核心端到端调用链 (Execution Call Flow)
-
-#### 模式一：`-d` / `--daily` [默认] 每日账本模式调用链
+### 2. 端到端调用流程 (Sequence Call Flow)
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor User as 用户 (CLI)
+    actor User as 用户 (CLI / Web)
     participant Core as myccusage 主程序
     participant NativeDB as 本地 Agent 状态源 (SQLite/Proto/JSONL)
     participant Cache as 本地日切片缓存 (~/.cache/myccusage/)
     participant CCUsage as 底层 ccusage CLI
-    participant Renderer as 终端排版渲染器
+    participant Renderer as 终端排版 / Web UI
 
     User->>Core: 运行 myccusage --agy (默认 -d)
-    Core->>NativeDB: 并行提取所有 Session 的真实标题与修改时间映射 (Map[SessionID -> Title])
-    Core->>CCUsage: 执行 ccusage <agent> daily --json (获取所有有活动的日期基准列表)
+    Core->>NativeDB: 并行提取真实会话标题与修改时间 (Map[SessionID -> Title])
+    Core->>CCUsage: 执行 ccusage <agent> daily --json (获取活动日期列表)
     CCUsage-->>Core: 返回活动日序列 [D1, D2, ... D_today]
     
     loop 遍历每一个活动日 D_i
-        alt D_i 为历史日 且 在 Cache 中命中
-            Core->>Cache: 直接读取 D_i 的会话切片列表
-            Cache-->>Core: 0.1ms 瞬时返回精准切片数据
+        alt D_i 为历史日 且 缓存命中
+            Core->>Cache: 直接读取 D_i 的会话切片数据
+            Cache-->>Core: 0.1ms 瞬时返回切片
         else D_i 为今日 (D_today) 或 首次未缓存的历史日
             Core->>CCUsage: 执行 ccusage <agent> session -s D_i -u D_i --json
-            CCUsage-->>Core: 返回该日内发生的 turns 聚合记录 (此日此Session)
+            CCUsage-->>Core: 返回此日内发生的精准增量切片
             opt D_i 为历史日
-                Core->>Cache: 将切片数据写入 ~/.cache/myccusage/{agent}_daily.json
+                Core->>Cache: 将切片落盘写入 ~/.cache/myccusage/{agent}_daily.json
             end
         end
     end
 
-    Core->>Core: 组装每笔日度明细，计算 DeepSeek-V4.1 等效价格，计算日小计与周小计
-    Core->>Renderer: 注入会话标题映射，按时间正序排列 (最新在最底)
-    Renderer->>User: 终端输出格式化表格，光标直接落在最新记录与汇总
-```
-
-#### 模式二：`-s` / `--session` 项目全生命周期总览模式调用链
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as 用户 (CLI)
-    participant Core as myccusage 主程序
-    participant NativeDB as 本地 Agent 状态源
-    participant CCUsage as 底层 ccusage CLI
-    participant Renderer as 终端排版渲染器
-
-    User->>Core: 运行 myccusage --agy -s [-t]
-    Core->>NativeDB: 提取 SessionID 标题库
-    Core->>CCUsage: 执行 ccusage <agent> session --json (一次性拉取全量会话总消耗)
-    CCUsage-->>Core: 返回各会话全生命周期 Cumulative Tokens
-    Core->>Core: 按各会话最后活跃时间 (或 -t Token 用量) 进行排序
-    Core->>Core: 计算全周期 DeepSeek 等效总费用与日/周活跃分布
-    Core->>Renderer: 注入标题并进行中英文对齐排版
-    Renderer->>User: 终端输出项目总览报表
+    Core->>Core: 组装明细，计算 DeepSeek-V4.1 等效价格，计算日小计与周小计
+    Core->>Renderer: 注入标题并按时间正序呈现 (最新在最底)
+    Renderer->>User: 输出格式化表格 / 唤起浏览器看板
 ```
 
 ---
 
-## 🚀 支持的 Agent 参数
+## 🤖 面向 AI Agent 与二次开发者
 
-| Agent | 参数 | 对应官方 CLI | 数据源解析机制 |
-| :--- | :--- | :--- | :--- |
-| **Google Antigravity** | `--agy`, `--antigravity` | Antigravity App / CLI | `agyhub_summaries_proto.pb` + `transcript.jsonl` |
-| **Claude Code** | `--claude` | `claude` | `history.jsonl` + `.claude/projects/*/*.jsonl` |
-| **Hermes Agent** | `--hermes` | `hermes` | `.hermes/state.db` (SQLite) |
-| **OpenAI Codex** | `--codex` | `codex` | `.codex/session_index.jsonl` + session logs |
-| **Grok** | `--grok` | `grok` | `.grok/sessions/session_search.sqlite` + `prompt_history.jsonl` |
-| **Pi Agent** | `--pi` | `pi` | `.pi/agent/sessions/*/*.jsonl` |
-| **OpenCode** | `--opencode` | `opencode` | `.local/share/opencode/opencode.db` (SQLite) |
+如果您是 **AI Coding Assistant**（如 Antigravity、Claude Code、Cursor、Copilot 等）或准备对本项目进行二次开发，请阅读专属维护文档：
 
----
+👉 **[README.agent.md](README.agent.md)**
 
-## 🛠️ 前置条件 (Prerequisites)
-
-本项目基于开源的 [ccusage](https://github.com/ryoppippi/ccusage) 获取底层基础切片，请确保已安装 `ccusage`（二选一即可）：
-
-```bash
-# 使用 npm 安装
-npm install -g ccusage
-
-# 或使用 bun 安装
-bun add -g ccusage
-```
+该文档详细提供了：
+1. **计价规则体系**：JSON 导入导出规范、浏览器 `localStorage` 存储机制、`calc_deepseek_cost` 算法实现；
+2. **主要模块与接口清单**：`core.py`、`cli.py`、`server.py` 与 `app.js` 的完整核心函数与数据结构说明；
+3. **扩展指南**：如何增加新 Agent 适配、如何自定义计价规则、本地调试与发版规范。
 
 ---
 
-## 💻 快速安装
+## 📄 开源许可证
 
-本项目已正式发布至 **PyPI 官方包管理器**，同时支持国内各大镜像源、GitHub 直装与本地一键配置脚本：
-
-### 方式 1：通过 PyPI 官方源 / 镜像源安装（最推荐，零克隆秒开）
-
-```bash
-# 官方源直接安装（自动注册 myccusage 和 ccusage-sessions 命令）
-pip install myccusage
-
-# 国内镜像源极速安装（清华大学开源镜像站）
-pip install myccusage -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 或使用现代隔离工具 pipx / uv
-pipx install myccusage
-# 或使用 uv 免安装即跑
-uvx myccusage --agy
-```
-
-### 方式 2：通过 GitHub 直装
-
-```bash
-# 国际直连
-pip install git+https://github.com/RichardHuang0001/ccusage-sessions.git
-
-# 国内加速镜像
-pip install git+https://ghproxy.net/https://github.com/RichardHuang0001/ccusage-sessions.git
-```
-
-### 方式 3：克隆仓库并使用一键脚本配置
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/RichardHuang0001/ccusage-sessions.git
-cd ccusage-sessions
-
-# 2. 运行一键配置脚本（自动检查依赖、配置 PATH 与全局软链接）
-./install.sh
-```
-
----
-
-## 📖 使用示例
-
-### 1. 默认每日会话账本模式 (`-d` / 默认)
-精准分列每日净消耗，最新记录在底部：
-
-```bash
-# 查看 Antigravity 每日账本
-myccusage --agy
-
-# 查看 Claude Code 每日账本
-myccusage --claude
-
-# 查看 Codex / Grok / OpenCode 每日账本
-myccusage --codex
-myccusage --grok
-myccusage --opencode
-
-# 旧命令 ccusage-sessions 保持完全兼容
-ccusage-sessions --agy
-```
-
-### 2. 项目全生命周期总览模式 (`-s`)
-查看每个项目从头到尾的累计用量：
-
-```bash
-# 查看 Antigravity 所有项目累计用量
-myccusage --agy -s
-
-# 按累计 Token 消耗排行，揪出最耗费的项目
-myccusage --agy -s -t
-myccusage --claude -s -t
-```
-
-### 3. 现代化网页仪表盘模式 (`--web` / `-w`)
-启动本地轻量 Web 服务，在浏览器中查看全景看板与可视化图表：
-
-```bash
-# 启动 Web Dashboard (默认端口 8488，并自动在浏览器中打开)
-myccusage --web
-
-# 指定端口启动
-myccusage --web --port 9000
-
-# 启动并直接聚焦特定 Agent
-myccusage --claude --web
-```
-
-### 4. 查看帮助信息
-```bash
-myccusage -h
-```
-
----
-
-## 🔒 隐私与安全承诺 (Privacy & Security)
-
-- **100% 纯本地离线运行**：所有原生会话标题提取、Token 切片计算均在本地设备完成，绝不向任何第三方云端或个人服务器上传任何代码、提问内容或使用量元数据。
-- **零遥测追踪 (No Telemetry)**：本项目不包含任何埋点、统计或追踪代码。
-- **本地回环网络安全**：内置 Web 仪表盘默认严格绑定 `127.0.0.1` 本地回环地址，关闭浏览器网页后看门狗会自动安全退出，绝不暴露公网或局域网端口。
-
----
-
-## 📄 开源许可
-
-[MIT License](LICENSE) © 2026 Richard Huang
-
+本项目基于 [MIT License](LICENSE) 开源发布。
