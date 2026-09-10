@@ -63,8 +63,8 @@ pip install -i https://pypi.tuna.tsinghua.edu.cn/simple myccusage
 #### 源码安装（针对开发者）
 
 ```bash
-git clone https://github.com/RichardHuang0001/ccusage-sessions.git
-cd ccusage-sessions
+git clone https://github.com/RichardHuang0001/myccusage.git
+cd myccusage
 chmod +x install.sh && ./install.sh
 ```
 

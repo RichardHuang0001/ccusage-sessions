@@ -151,7 +151,7 @@ def calc_deepseek_cost(input_tokens, cache_read_tokens, total_output_tokens):
 
 ### 项目目录树：
 ```
-ccusage-sessions/
+myccusage/
 ├── myccusage.py                 # CLI 入口，处理软链接并委托 cli.py
 ├── myccusage_lib/
 │   ├── __init__.py             # 版本号与元数据定义 (__version__ = "1.2.0")
