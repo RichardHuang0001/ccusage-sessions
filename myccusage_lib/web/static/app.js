@@ -517,6 +517,19 @@
     });
   }
 
+  // 统一计价响应调度中心：模型切换或费率更新后，全局同步刷新当前激活视图的所有价格展示
+  function updateAllPricingDisplays() {
+    if (state.agent === 'all') {
+      if (state.allAgentsData) {
+        renderAllAgentsOverview(state.allAgentsData);
+      }
+    } else {
+      if (state.data) {
+        renderDashboard(state.data);
+      }
+    }
+  }
+
   function setPricingModel(modelId, notify = false) {
     const allModels = getAllPricingModels();
     if (!allModels[modelId]) {
@@ -536,12 +549,8 @@
       showToast(`已选择计价模型: ${model.name}`);
     }
 
-    // 动态全站重算 (即时响应，零冗余开销)
-    if (state.data) {
-      renderDashboard(state.data);
-    } else if (state.allAgentsData) {
-      renderAllAgentsOverview(state.allAgentsData);
-    }
+    // 动态全站重算 (即时响应，调度计价中心)
+    updateAllPricingDisplays();
   }
 
   // ------------------------------------------------------------------------
@@ -687,8 +696,7 @@
 
     if (state.pricingModel === currentId) {
       el.selectedPricingName.textContent = updatedModel.name;
-      if (state.data) renderDashboard(state.data);
-      else if (state.allAgentsData) renderAllAgentsOverview(state.allAgentsData);
+      updateAllPricingDisplays();
     }
 
     showToast(`✅ 已保存模型修改: ${updatedModel.name}`);
@@ -756,8 +764,7 @@
     const active = getActiveModel();
     renderManagerDetail(active.id);
     renderPricingDropdownMenu();
-    if (state.data) renderDashboard(state.data);
-    else if (state.allAgentsData) renderAllAgentsOverview(state.allAgentsData);
+    updateAllPricingDisplays();
     showToast('✨ 已恢复所有系统默认预设模型');
   }
 
@@ -1506,6 +1513,11 @@
     el.subTotalTokens.textContent = `全平台 7 大 Agent 累计消耗`;
     el.valTotalCost.textContent = formatKpiMainCost(model, grandCost);
     el.valTotalCostUsd.textContent = formatKpiSubCost(model, grandCost);
+
+    const costBadge = document.querySelector('.highlight-card .kpi-badge');
+    if (costBadge) costBadge.textContent = model.name;
+    const costTitle = document.querySelector('.highlight-card .kpi-title');
+    if (costTitle) costTitle.textContent = `${model.name} 等效费用`;
     const hitRate = (gs.cacheHitRate !== undefined && gs.cacheHitRate !== null)
       ? gs.cacheHitRate
       : (gs.inputTokens + gs.cacheTokens > 0 ? ((gs.cacheTokens / (gs.inputTokens + gs.cacheTokens)) * 100).toFixed(1) : '0.0');
