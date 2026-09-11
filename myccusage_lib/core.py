@@ -15,6 +15,7 @@ import sys
 import sqlite3
 import os
 import shutil
+import concurrent.futures
 from datetime import datetime, timezone
 from collections import OrderedDict
 
@@ -387,11 +388,26 @@ def check_ccusage_installed():
             "安装完成后重新运行当前命令即可。"
         )
 
+def run_ccusage(args, capture_output=True, text=True):
+    """
+    统一安全调用底层 ccusage CLI:
+    - 优先追加 --offline 参数阻断冗余公网 LiteLLM 模型价格拉取 (提速 10x+)
+    - 若旧版本不支持 --offline 则自动优雅降级回退执行
+    """
+    check_ccusage_installed()
+    cmd = ["ccusage"] + list(args)
+    if "--offline" not in cmd:
+        cmd.append("--offline")
+    res = subprocess.run(cmd, capture_output=capture_output, text=text)
+    if res.returncode != 0 and ("unknown" in (res.stderr or "").lower() or "unexpected" in (res.stderr or "").lower()):
+        # 兼容旧版本 ccusage 不识别 --offline 的极端场景
+        cmd_fallback = [arg for arg in cmd if arg != "--offline"]
+        res = subprocess.run(cmd_fallback, capture_output=capture_output, text=text)
+    return res
+
 def fetch_single_day_sessions(ccusage_subcmd, date_str, times_override):
     """获取指定日期的精确切片会话消耗（不含历史前日累积）"""
-    check_ccusage_installed()
-    cmd = ["ccusage", ccusage_subcmd, "session", "-s", date_str, "-u", date_str, "--json"]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = run_ccusage([ccusage_subcmd, "session", "-s", date_str, "-u", date_str, "--json"])
     if res.returncode != 0:
         return []
     try:
@@ -418,8 +434,8 @@ def get_daily_data(agent_type, sort_by_tokens=False, force_refresh=False):
     ccusage_subcmd = info["subcmd"]
     titles, times_override = get_agent_metadata(agent_type)
 
-    # 1. 获取活动日基准
-    res_daily = subprocess.run(["ccusage", ccusage_subcmd, "daily", "--json"], capture_output=True, text=True)
+    # 1. 获取活动日基准 (带 --offline 阻断网络挂起)
+    res_daily = run_ccusage([ccusage_subcmd, "daily", "--json"])
     if res_daily.returncode != 0:
         raise RuntimeError(f"执行 ccusage {ccusage_subcmd} daily 失败: {res_daily.stderr}")
 
@@ -440,26 +456,42 @@ def get_daily_data(agent_type, sort_by_tokens=False, force_refresh=False):
     cache_file = os.path.join(cache_dir, f"{agent_type}_daily.json")
 
     cache = {}
-    if os.path.exists(cache_file):
+    if not force_refresh and os.path.exists(cache_file):
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
                 cache = json.load(f)
         except Exception:
             cache = {}
 
-    cache_dirty = False
+    cache_dirty = force_refresh
     day_sessions_map = OrderedDict()
+
+    # 识别未在缓存中的历史天数 (若有则并发拉取，避免冷启动单线程逐天挂起)
+    uncached_history_days = [d for d in active_days if d != today_str and d not in cache]
+    if uncached_history_days:
+        max_workers = min(6, len(uncached_history_days))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            future_to_day = {
+                pool.submit(fetch_single_day_sessions, ccusage_subcmd, d, times_override): d
+                for d in uncached_history_days
+            }
+            for fut in concurrent.futures.as_completed(future_to_day):
+                d = future_to_day[fut]
+                try:
+                    cache[d] = fut.result()
+                    cache_dirty = True
+                except Exception:
+                    cache[d] = []
 
     for d_str in active_days:
         # 历史已结账日使用缓存，仅今日实时切片拉取 (秒级响应)
         if d_str != today_str and d_str in cache:
             day_sessions_map[d_str] = cache[d_str]
-        else:
+        elif d_str == today_str:
             s_list = fetch_single_day_sessions(ccusage_subcmd, d_str, times_override)
             day_sessions_map[d_str] = s_list
-            if d_str != today_str:
-                cache[d_str] = s_list
-                cache_dirty = True
+        else:
+            day_sessions_map[d_str] = cache.get(d_str, [])
 
     if cache_dirty:
         try:
@@ -632,11 +664,11 @@ def get_session_data(agent_type, sort_by_tokens=False, clean_args=None):
     ccusage_subcmd = info["subcmd"]
     titles, times_override = get_agent_metadata(agent_type)
 
-    cmd = ["ccusage", ccusage_subcmd, "session", "--json"]
+    sub_args = [ccusage_subcmd, "session", "--json"]
     if clean_args:
-        cmd.extend(clean_args)
+        sub_args.extend(clean_args)
 
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = run_ccusage(sub_args)
     if res.returncode != 0:
         raise RuntimeError(f"执行 ccusage {ccusage_subcmd} session 失败: {res.stderr}")
 
@@ -793,38 +825,54 @@ def get_session_data(agent_type, sort_by_tokens=False, clean_args=None):
     }
 
 def get_all_agents_summary():
-    """汇总所有支持的 Agent 的用量与概览，支持 Web 端全局看板"""
+    """汇总所有支持的 Agent 的用量与概览，支持 Web 端全局看板 (多线程并发调度极速版)"""
     agents_summary = []
     grand_tokens = 0
     grand_cost = 0.0
     grand_sessions = 0
 
-    for agent_id, agent_meta in SUPPORTED_AGENTS.items():
+    def _fetch_single_agent(agent_id, agent_meta):
         try:
             data = get_daily_data(agent_id)
             sum_info = data["summary"]
             rec_cnt = data["totalRecordsCount"]
-            agents_summary.append({
+            return {
                 "id": agent_id,
                 "name": agent_meta["name"],
                 "totalTokens": sum_info["totalTokens"],
                 "costCny": sum_info["costCny"],
                 "recordsCount": rec_cnt,
                 "cacheHitRate": sum_info["cacheHitRate"]
-            })
-            grand_tokens += sum_info["totalTokens"]
-            grand_cost += sum_info["costCny"]
-            grand_sessions += rec_cnt
+            }
         except Exception:
             # 个别 Agent 若在本地未安装或无记录，宽容返回 0
-            agents_summary.append({
+            return {
                 "id": agent_id,
                 "name": agent_meta["name"],
                 "totalTokens": 0,
                 "costCny": 0.0,
                 "recordsCount": 0,
                 "cacheHitRate": 0.0
-            })
+            }
+
+    agent_ids = list(SUPPORTED_AGENTS.keys())
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(agent_ids)) as pool:
+        future_map = {
+            pool.submit(_fetch_single_agent, aid, SUPPORTED_AGENTS[aid]): aid
+            for aid in agent_ids
+        }
+        results_by_id = {}
+        for fut in concurrent.futures.as_completed(future_map):
+            aid = future_map[fut]
+            results_by_id[aid] = fut.result()
+
+    # 严格保持 SUPPORTED_AGENTS 初始定义的排列顺序
+    for aid in agent_ids:
+        item = results_by_id[aid]
+        agents_summary.append(item)
+        grand_tokens += item["totalTokens"]
+        grand_cost += item["costCny"]
+        grand_sessions += item["recordsCount"]
 
     return {
         "grandSummary": {

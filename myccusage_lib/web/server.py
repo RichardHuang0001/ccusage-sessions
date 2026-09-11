@@ -26,6 +26,42 @@ from ..core import (
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), "static")
 
+class DataCache:
+    """
+    轻量线程安全内存缓存池:
+    - 用于 Web 服务运行期间对会话数据提供亚毫秒级（< 1ms）快速响应
+    - 针对 (agent, mode, sort) 建立 30 秒短 TTL 缓存，消除反复切 Tab 与刷新的子进程开销
+    - 当用户点击“刷新”或执行强制同步时，支持精准或全局失效
+    """
+    _lock = threading.Lock()
+    _cache = {}
+    TTL = 30.0
+
+    @classmethod
+    def get(cls, key):
+        with cls._lock:
+            if key in cls._cache:
+                ts, val = cls._cache[key]
+                if time.time() - ts < cls.TTL:
+                    return val
+                del cls._cache[key]
+            return None
+
+    @classmethod
+    def set(cls, key, data):
+        with cls._lock:
+            cls._cache[key] = (time.time(), data)
+
+    @classmethod
+    def invalidate(cls, agent=None):
+        with cls._lock:
+            if agent is None or agent == "all":
+                cls._cache.clear()
+            else:
+                to_del = [k for k in cls._cache if k[0] == agent]
+                for k in to_del:
+                    del cls._cache[k]
+
 class ServerState:
     has_client_connected = False
     last_heartbeat_time = 0.0
@@ -83,13 +119,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": f"不支持的 Agent: {agent}"}, 400)
                 return
             try:
+                # 显式刷新穿透失效对应缓存
+                DataCache.invalidate(agent)
                 if agent == "all":
                     # 重新拉取所有
                     for ag in SUPPORTED_AGENTS:
                         get_daily_data(ag, force_refresh=True)
                     res = get_all_agents_summary()
+                    DataCache.set(("all", "summary", False), res)
                 else:
                     res = get_daily_data(agent, force_refresh=True)
+                    DataCache.set((agent, "daily", False), res)
                 self.send_json({"success": True, "data": res})
             except Exception as e:
                 self.send_json({"error": str(e)}, 500)
@@ -123,7 +163,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/all":
             try:
+                cache_key = ("all", "summary", False)
+                cached = DataCache.get(cache_key)
+                if cached is not None:
+                    self.send_json(cached)
+                    return
                 res = get_all_agents_summary()
+                DataCache.set(cache_key, res)
                 self.send_json(res)
             except Exception as e:
                 self.send_json({"error": str(e)}, 500)
@@ -138,11 +184,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": f"不支持的 Agent: {agent}"}, 400)
                 return
 
+            cache_key = (agent, mode, sort_by_tokens)
+            cached = DataCache.get(cache_key)
+            if cached is not None:
+                self.send_json(cached)
+                return
+
             try:
                 if mode == "session":
                     data = get_session_data(agent, sort_by_tokens=sort_by_tokens)
                 else:
                     data = get_daily_data(agent, sort_by_tokens=sort_by_tokens)
+                DataCache.set(cache_key, data)
                 self.send_json(data)
             except Exception as e:
                 self.send_json({"error": str(e)}, 500)
@@ -212,6 +265,17 @@ def start_server(port=8488, default_agent="agy", auto_open=True):
     # 启动看门狗守护线程 (网页关闭联动安全退出)
     watchdog = threading.Thread(target=watchdog_loop, args=(server,), daemon=True)
     watchdog.start()
+
+    # 启动后台异步预热线程 (预加载默认 Agent 会话数据入内存，实现首屏秒开体验)
+    def warmup_worker():
+        try:
+            w_agent = default_agent or "agy"
+            data = get_daily_data(w_agent)
+            DataCache.set((w_agent, "daily", False), data)
+        except Exception:
+            pass
+
+    threading.Thread(target=warmup_worker, daemon=True).start()
 
     if auto_open:
         try:
