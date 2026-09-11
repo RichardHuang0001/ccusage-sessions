@@ -154,7 +154,7 @@ def calc_deepseek_cost(input_tokens, cache_read_tokens, total_output_tokens):
 myccusage/
 ├── myccusage.py                 # CLI 入口，处理软链接并委托 cli.py
 ├── myccusage_lib/
-│   ├── __init__.py             # 版本号与元数据定义 (__version__ = "1.2.0")
+│   ├── __init__.py             # 版本号与元数据定义 (__version__ = "1.2.1")
 │   ├── core.py                 # 标题解析、底层切片采集、两级缓存、聚合计算内核
 │   ├── cli.py                  # CLI 参数解析、Unicode 字符级中英宽度排版渲染
 │   └── web/
