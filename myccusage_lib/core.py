@@ -14,12 +14,24 @@ import glob
 import sys
 import sqlite3
 import os
+import time
+import threading
 import shutil
 import concurrent.futures
 from datetime import datetime, timezone
 from collections import OrderedDict
 
 WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"]
+
+_AGENT_LOCKS = {}
+_AGENT_LOCKS_MUTEX = threading.Lock()
+
+def get_agent_lock(agent_type):
+    """获取指定 Agent 专用的互斥锁，避免同一 Agent 多个进程并发竞争本地 SQLite 数据库"""
+    with _AGENT_LOCKS_MUTEX:
+        if agent_type not in _AGENT_LOCKS:
+            _AGENT_LOCKS[agent_type] = threading.Lock()
+        return _AGENT_LOCKS[agent_type]
 
 SUPPORTED_AGENTS = {
     "agy": {"name": "Google Antigravity", "subcmd": "antigravity", "has_times": False},
@@ -388,28 +400,43 @@ def check_ccusage_installed():
             "安装完成后重新运行当前命令即可。"
         )
 
-def run_ccusage(args, capture_output=True, text=True):
+def run_ccusage(args, capture_output=True, text=True, max_retries=3):
     """
     统一安全调用底层 ccusage CLI:
     - 优先追加 --offline 参数阻断冗余公网 LiteLLM 模型价格拉取 (提速 10x+)
+    - 若遇到 database is locked 错误，支持毫秒级退避重试 (解决 SQLite 读写瞬态争抢)
     - 若旧版本不支持 --offline 则自动优雅降级回退执行
     """
     check_ccusage_installed()
     cmd = ["ccusage"] + list(args)
     if "--offline" not in cmd:
         cmd.append("--offline")
-    res = subprocess.run(cmd, capture_output=capture_output, text=text)
-    if res.returncode != 0 and ("unknown" in (res.stderr or "").lower() or "unexpected" in (res.stderr or "").lower()):
-        # 兼容旧版本 ccusage 不识别 --offline 的极端场景
-        cmd_fallback = [arg for arg in cmd if arg != "--offline"]
-        res = subprocess.run(cmd_fallback, capture_output=capture_output, text=text)
+
+    for attempt in range(max_retries):
+        res = subprocess.run(cmd, capture_output=capture_output, text=text)
+        stderr_lower = (res.stderr or "").lower()
+
+        # 检查是否为 SQLite 瞬态锁冲突，毫秒级退避重试
+        if res.returncode != 0 and ("database is locked" in stderr_lower or "code 5" in stderr_lower):
+            if attempt < max_retries - 1:
+                time.sleep(0.3 * (attempt + 1))
+                continue
+
+        # 检查是否为旧版本不识别 --offline
+        if res.returncode != 0 and ("unknown" in stderr_lower or "unexpected" in stderr_lower):
+            cmd_fallback = [arg for arg in cmd if arg != "--offline"]
+            res = subprocess.run(cmd_fallback, capture_output=capture_output, text=text)
+
+        return res
+
     return res
 
 def fetch_single_day_sessions(ccusage_subcmd, date_str, times_override):
     """获取指定日期的精确切片会话消耗（不含历史前日累积）"""
     res = run_ccusage([ccusage_subcmd, "session", "-s", date_str, "-u", date_str, "--json"])
     if res.returncode != 0:
-        return []
+        # 失败时返回 None 而非 []，严格区分“提取错误”与“该日无数据”，防止缓存污染
+        return None
     try:
         data = json.loads(res.stdout)
         sessions = data.get("sessions", [])
@@ -419,7 +446,7 @@ def fetch_single_day_sessions(ccusage_subcmd, date_str, times_override):
                 s["lastActivity"] = times_override[sid]
         return sessions
     except Exception:
-        return []
+        return None
 
 def get_daily_data(agent_type, sort_by_tokens=False, force_refresh=False):
     """
@@ -434,71 +461,69 @@ def get_daily_data(agent_type, sort_by_tokens=False, force_refresh=False):
     ccusage_subcmd = info["subcmd"]
     titles, times_override = get_agent_metadata(agent_type)
 
-    # 1. 获取活动日基准 (带 --offline 阻断网络挂起)
-    res_daily = run_ccusage([ccusage_subcmd, "daily", "--json"])
-    if res_daily.returncode != 0:
-        raise RuntimeError(f"执行 ccusage {ccusage_subcmd} daily 失败: {res_daily.stderr}")
+    agent_lock = get_agent_lock(agent_type)
+    with agent_lock:
+        # 1. 获取活动日基准 (带 --offline 阻断网络挂起)
+        res_daily = run_ccusage([ccusage_subcmd, "daily", "--json"])
+        if res_daily.returncode != 0:
+            raise RuntimeError(f"执行 ccusage {ccusage_subcmd} daily 失败: {res_daily.stderr}")
 
-    try:
-        daily_json = json.loads(res_daily.stdout)
-    except Exception as e:
-        raise RuntimeError(f"无法解析 ccusage {ccusage_subcmd} daily 输出: {e}")
-
-    daily_list = daily_json.get("daily", [])
-    active_days = [d.get("date") for d in daily_list if d.get("date")]
-    active_days.sort()
-
-    today_str = datetime.now().strftime("%Y-%m-%d")
-
-    # 2. 读取/写入本地缓存
-    cache_dir = os.path.expanduser("~/.cache/myccusage")
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_file = os.path.join(cache_dir, f"{agent_type}_daily.json")
-
-    cache = {}
-    if not force_refresh and os.path.exists(cache_file):
         try:
-            with open(cache_file, "r", encoding="utf-8") as f:
-                cache = json.load(f)
-        except Exception:
-            cache = {}
+            daily_json = json.loads(res_daily.stdout)
+        except Exception as e:
+            raise RuntimeError(f"无法解析 ccusage {ccusage_subcmd} daily 输出: {e}")
 
-    cache_dirty = force_refresh
-    day_sessions_map = OrderedDict()
+        daily_list = daily_json.get("daily", [])
+        active_days = [d.get("date") for d in daily_list if d.get("date")]
+        active_days.sort()
+        daily_tokens_map = {d.get("date"): d.get("totalTokens", 0) for d in daily_list if d.get("date")}
 
-    # 识别未在缓存中的历史天数 (若有则并发拉取，避免冷启动单线程逐天挂起)
-    uncached_history_days = [d for d in active_days if d != today_str and d not in cache]
-    if uncached_history_days:
-        max_workers = min(6, len(uncached_history_days))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-            future_to_day = {
-                pool.submit(fetch_single_day_sessions, ccusage_subcmd, d, times_override): d
-                for d in uncached_history_days
-            }
-            for fut in concurrent.futures.as_completed(future_to_day):
-                d = future_to_day[fut]
-                try:
-                    cache[d] = fut.result()
-                    cache_dirty = True
-                except Exception:
-                    cache[d] = []
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
-    for d_str in active_days:
-        # 历史已结账日使用缓存，仅今日实时切片拉取 (秒级响应)
-        if d_str != today_str and d_str in cache:
-            day_sessions_map[d_str] = cache[d_str]
-        elif d_str == today_str:
-            s_list = fetch_single_day_sessions(ccusage_subcmd, d_str, times_override)
-            day_sessions_map[d_str] = s_list
-        else:
-            day_sessions_map[d_str] = cache.get(d_str, [])
+        # 2. 读取/写入本地缓存
+        cache_dir = os.path.expanduser("~/.cache/myccusage")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, f"{agent_type}_daily.json")
 
-    if cache_dirty:
-        try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(cache, f)
-        except Exception:
-            pass
+        cache = {}
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+            except Exception:
+                cache = {}
+
+        cache_dirty = False
+        day_sessions_map = OrderedDict()
+
+        # 识别缺失或先前被污染(有Token却被记录为空列表)的历史天数，顺序安全拉取修复
+        uncached_history_days = [
+            d for d in active_days
+            if d != today_str and (d not in cache or (daily_tokens_map.get(d, 0) > 0 and len(cache.get(d, [])) == 0))
+        ]
+        for d in uncached_history_days:
+            s_list = fetch_single_day_sessions(ccusage_subcmd, d, times_override)
+            if s_list is not None:
+                cache[d] = s_list
+                cache_dirty = True
+
+        for d_str in active_days:
+            if d_str != today_str:
+                day_sessions_map[d_str] = cache.get(d_str, [])
+            else:
+                # 仅今日调用实时切片抓取
+                s_list = fetch_single_day_sessions(ccusage_subcmd, d_str, times_override)
+                if s_list is not None:
+                    day_sessions_map[today_str] = s_list
+                else:
+                    day_sessions_map[today_str] = cache.get(today_str, [])
+
+        if cache_dirty:
+            try:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(cache, f)
+            except Exception:
+                pass
 
     # 3. 统计与分层聚合
     grand_total = 0
@@ -664,18 +689,20 @@ def get_session_data(agent_type, sort_by_tokens=False, clean_args=None):
     ccusage_subcmd = info["subcmd"]
     titles, times_override = get_agent_metadata(agent_type)
 
-    sub_args = [ccusage_subcmd, "session", "--json"]
-    if clean_args:
-        sub_args.extend(clean_args)
+    agent_lock = get_agent_lock(agent_type)
+    with agent_lock:
+        sub_args = [ccusage_subcmd, "session", "--json"]
+        if clean_args:
+            sub_args.extend(clean_args)
 
-    res = run_ccusage(sub_args)
-    if res.returncode != 0:
-        raise RuntimeError(f"执行 ccusage {ccusage_subcmd} session 失败: {res.stderr}")
+        res = run_ccusage(sub_args)
+        if res.returncode != 0:
+            raise RuntimeError(f"执行 ccusage {ccusage_subcmd} session 失败: {res.stderr}")
 
-    try:
-        usage_data = json.loads(res.stdout)
-    except Exception as e:
-        raise RuntimeError(f"无法解析 ccusage {ccusage_subcmd} 输出: {e}")
+        try:
+            usage_data = json.loads(res.stdout)
+        except Exception as e:
+            raise RuntimeError(f"无法解析 ccusage {ccusage_subcmd} 输出: {e}")
 
     raw_sessions = usage_data.get("sessions", [])
     sessions = []
