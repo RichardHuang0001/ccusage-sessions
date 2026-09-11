@@ -1498,14 +1498,19 @@
   function renderAllAgentsOverview(allData) {
     const gs = allData.grandSummary;
     const model = getActiveModel();
-    const grandCost = calcCost(model, gs.inputTokens, gs.cacheTokens, gs.outputTokens);
+    const grandCost = (gs.inputTokens !== undefined || gs.cacheTokens !== undefined || gs.outputTokens !== undefined)
+      ? calcCost(model, gs.inputTokens, gs.cacheTokens, gs.outputTokens)
+      : (gs.costCny || 0);
 
     el.valTotalTokens.textContent = formatTokens(gs.totalTokens);
     el.subTotalTokens.textContent = `全平台 7 大 Agent 累计消耗`;
     el.valTotalCost.textContent = formatKpiMainCost(model, grandCost);
     el.valTotalCostUsd.textContent = formatKpiSubCost(model, grandCost);
-    el.valCacheHitRate.textContent = `--`;
-    el.barCacheHit.style.width = '0%';
+    const hitRate = (gs.cacheHitRate !== undefined && gs.cacheHitRate !== null)
+      ? gs.cacheHitRate
+      : (gs.inputTokens + gs.cacheTokens > 0 ? ((gs.cacheTokens / (gs.inputTokens + gs.cacheTokens)) * 100).toFixed(1) : '0.0');
+    el.valCacheHitRate.textContent = `${hitRate}%`;
+    el.barCacheHit.style.width = `${Math.min(100, Math.max(0, parseFloat(hitRate) || 0))}%`;
     el.badgeActivePeriod.textContent = 'Agent 矩阵';
     el.valActiveDays.textContent = `7 款支持`;
     el.subActiveDays.textContent = `全景总览模式`;
@@ -1514,7 +1519,9 @@
 
     let html = '';
     allData.agents.forEach(a => {
-      const aCost = calcCost(model, a.inputTokens, a.cacheTokens, a.outputTokens);
+      const aCost = (a.inputTokens !== undefined || a.cacheTokens !== undefined || a.outputTokens !== undefined)
+        ? calcCost(model, a.inputTokens, a.cacheTokens, a.outputTokens)
+        : (a.costCny || 0);
       html += `
         <div class="agent-stat-card" data-agent="${a.id}">
           <div class="agent-stat-name">

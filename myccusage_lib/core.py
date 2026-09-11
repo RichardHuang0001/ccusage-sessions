@@ -828,6 +828,9 @@ def get_all_agents_summary():
     """汇总所有支持的 Agent 的用量与概览，支持 Web 端全局看板 (多线程并发调度极速版)"""
     agents_summary = []
     grand_tokens = 0
+    grand_input = 0
+    grand_cache = 0
+    grand_output = 0
     grand_cost = 0.0
     grand_sessions = 0
 
@@ -839,10 +842,14 @@ def get_all_agents_summary():
             return {
                 "id": agent_id,
                 "name": agent_meta["name"],
-                "totalTokens": sum_info["totalTokens"],
-                "costCny": sum_info["costCny"],
+                "totalTokens": sum_info.get("totalTokens", 0),
+                "inputTokens": sum_info.get("inputTokens", 0),
+                "cacheTokens": sum_info.get("cacheTokens", 0),
+                "outputTokens": sum_info.get("outputTokens", 0),
+                "costCny": sum_info.get("costCny", 0.0),
+                "costUsd": sum_info.get("costUsd", 0.0),
                 "recordsCount": rec_cnt,
-                "cacheHitRate": sum_info["cacheHitRate"]
+                "cacheHitRate": sum_info.get("cacheHitRate", 0.0)
             }
         except Exception:
             # 个别 Agent 若在本地未安装或无记录，宽容返回 0
@@ -850,7 +857,11 @@ def get_all_agents_summary():
                 "id": agent_id,
                 "name": agent_meta["name"],
                 "totalTokens": 0,
+                "inputTokens": 0,
+                "cacheTokens": 0,
+                "outputTokens": 0,
                 "costCny": 0.0,
+                "costUsd": 0.0,
                 "recordsCount": 0,
                 "cacheHitRate": 0.0
             }
@@ -871,15 +882,24 @@ def get_all_agents_summary():
         item = results_by_id[aid]
         agents_summary.append(item)
         grand_tokens += item["totalTokens"]
+        grand_input += item["inputTokens"]
+        grand_cache += item["cacheTokens"]
+        grand_output += item["outputTokens"]
         grand_cost += item["costCny"]
         grand_sessions += item["recordsCount"]
+
+    grand_hit_rate = round(grand_cache / max(1, grand_input + grand_cache) * 100, 2)
 
     return {
         "grandSummary": {
             "totalTokens": grand_tokens,
+            "inputTokens": grand_input,
+            "cacheTokens": grand_cache,
+            "outputTokens": grand_output,
             "costCny": round(grand_cost, 2),
             "costUsd": round(grand_cost / 7.2, 2),
             "totalSessions": grand_sessions,
+            "cacheHitRate": grand_hit_rate
         },
         "agents": agents_summary
     }
